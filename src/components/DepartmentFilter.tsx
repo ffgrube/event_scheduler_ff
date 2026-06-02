@@ -169,7 +169,7 @@ export default function DepartmentFilter({
               <div className="flex flex-wrap gap-1.5">
                 {departments.map((dept) => {
                   const usageCount = tasks.filter((t) => t.code === dept.code).length;
-                  const deptColor = PDF_SAFE_COLORS[dept.code] || dept.color;
+                  const deptColor = dept.color || PDF_SAFE_COLORS[dept.code] || '#64748B';
                   return (
                     <div
                       key={dept.code}
@@ -295,7 +295,7 @@ export default function DepartmentFilter({
             </button>
             {departments.map((dept) => {
               const isSelected = selectedDeptFilter === dept.code;
-              const deptColor = PDF_SAFE_COLORS[dept.code] || dept.color;
+              const deptColor = dept.color || PDF_SAFE_COLORS[dept.code] || '#64748B';
               return (
                 <button
                   key={dept.code}

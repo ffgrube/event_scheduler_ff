@@ -164,7 +164,8 @@ export default function UnifiedTimeline({
   const showReadOnlyLayout = isReadOnly || isGeneratingPDF;
 
   const getDeptColor = (code: string) => {
-    return PDF_SAFE_COLORS[code] || '#64748B';
+    const dept = departments.find(d => d.code.toUpperCase() === code.toUpperCase());
+    return dept ? dept.color : (PDF_SAFE_COLORS[code] || '#64748B');
   };
 
   const generateAgendaPDF = () => {
@@ -302,7 +303,7 @@ export default function UnifiedTimeline({
           }
 
           const activeSlot = getSlotLabel(task);
-          const deptColorHex = PDF_SAFE_COLORS[task.code] || '#64748B';
+          const deptColorHex = getDeptColor(task.code);
 
           // Robust hex conversion to RGB safeguarding older PDF export builds
           const { r, g, b } = hexToRgb(deptColorHex);
