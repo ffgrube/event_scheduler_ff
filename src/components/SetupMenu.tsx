@@ -5,16 +5,17 @@
 
 import React, { useState } from 'react';
 import { ProjectSettings } from '../types';
-import { Calendar, Settings, Check, RefreshCw, Info } from 'lucide-react';
+import { Calendar, Settings, Check, RefreshCw, Info, Link } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface SetupMenuProps {
   settings: ProjectSettings;
   onUpdateSettings: (settings: ProjectSettings) => void;
   onResetToDefault: () => void;
+  onCopyShareLink?: () => void;
 }
 
-export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault }: SetupMenuProps) {
+export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault, onCopyShareLink }: SetupMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [projectName, setProjectName] = useState(settings.projectName);
   const [startDate, setStartDate] = useState(settings.startDate);
@@ -86,12 +87,29 @@ export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault
             </p>
           </div>
         </div>
-        <button 
-          id="toggle-setup-btn"
-          className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-        >
-          {isOpen ? 'Close Settings' : 'Edit Timeline Range'}
-        </button>
+        <div className="flex items-center gap-2">
+          {onCopyShareLink && (
+            <button
+              type="button"
+              id="copy-share-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyShareLink();
+              }}
+              className="text-[11px] font-bold px-2.5 py-1.5 border border-indigo-200 bg-indigo-50/40 hover:bg-indigo-50 hover:border-indigo-300 text-indigo-700 rounded-lg transition-colors flex items-center gap-1"
+              title="Copy view-only share link for clients or staff"
+            >
+              <Link className="w-3.5 h-3.5" />
+              Copy Share Link
+            </button>
+          )}
+          <button 
+            id="toggle-setup-btn"
+            className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+          >
+            {isOpen ? 'Close Settings' : 'Edit Timeline Range'}
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>

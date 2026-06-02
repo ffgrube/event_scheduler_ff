@@ -14,6 +14,7 @@ import SetupMenu from './components/SetupMenu';
 import TaskForm from './components/TaskForm';
 import UnifiedTimeline from './components/UnifiedTimeline';
 import DepartmentFilter from './components/DepartmentFilter';
+import TaskEditModal from './components/TaskEditModal';
 import { 
   Layers, 
   Filter, 
@@ -129,6 +130,8 @@ const INITIAL_TASKS: Task[] = [
 ];
 
 export default function App() {
+  const isReadOnly = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('mode') === 'view' : false;
+  
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>(DEFAULT_DEPARTMENTS);
   const [settings, setSettings] = useState<ProjectSettings>(DEFAULT_SETTINGS);
@@ -136,41 +139,75 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
-  // Initialize data from LocalStorage or setup defaults
-  useEffect(() => {
-    const storedTasks = localStorage.getItem(LOCAL_STORAGE_KEY_TASKS);
-    const storedSettings = localStorage.getItem(LOCAL_STORAGE_KEY_SETTINGS);
-    const storedDepts = localStorage.getItem(LOCAL_STORAGE_KEY_DEPARTMENTS);
+  const [changesToday, setChangesToday] = useState<any[]>([]);
 
-    if (storedTasks) {
+  const fetchChangesToday = async () => {
+    try {
+      const res = await fetch('/api/changes');
+      if (res.ok) {
+        const data = await res.json();
+        setChangesToday(data);
+      }
+    } catch (e) {
+      console.warn('Backend changes API offline', e);
+    }
+  };
+
+  // Sync data dynamically from the backend server first, with localStorage as safe offline fallback
+  useEffect(() => {
+    const initData = async () => {
+      // 1. Fetch tasks list from Express database server
       try {
-        setTasks(JSON.parse(storedTasks));
+        const res = await fetch('/api/tasks');
+        if (res.ok) {
+          const data = await res.json();
+          setTasks(data);
+          localStorage.setItem(LOCAL_STORAGE_KEY_TASKS, JSON.stringify(data));
+        } else {
+          loadTasksFromLocal();
+        }
       } catch (e) {
+        console.warn('Backend server unreached. Continuing in sandbox localStorage mode.', e);
+        loadTasksFromLocal();
+      }
+
+      // 2. Load settings and departments from local preferences
+      const storedSettings = localStorage.getItem(LOCAL_STORAGE_KEY_SETTINGS);
+      if (storedSettings) {
+        try {
+          setSettings(JSON.parse(storedSettings));
+        } catch (e) {
+          setSettings(DEFAULT_SETTINGS);
+        }
+      }
+
+      const storedDepts = localStorage.getItem(LOCAL_STORAGE_KEY_DEPARTMENTS);
+      if (storedDepts) {
+        try {
+          setDepartments(JSON.parse(storedDepts));
+        } catch (e) {
+          setDepartments(DEFAULT_DEPARTMENTS);
+        }
+      }
+
+      // 3. Load daily change log history from backend
+      fetchChangesToday();
+    };
+
+    const loadTasksFromLocal = () => {
+      const storedTasks = localStorage.getItem(LOCAL_STORAGE_KEY_TASKS);
+      if (storedTasks) {
+        try {
+          setTasks(JSON.parse(storedTasks));
+        } catch (e) {
+          setTasks(INITIAL_TASKS);
+        }
+      } else {
         setTasks(INITIAL_TASKS);
       }
-    } else {
-      setTasks(INITIAL_TASKS);
-    }
+    };
 
-    if (storedDepts) {
-      try {
-        setDepartments(JSON.parse(storedDepts));
-      } catch (e) {
-        setDepartments(DEFAULT_DEPARTMENTS);
-      }
-    } else {
-      setDepartments(DEFAULT_DEPARTMENTS);
-    }
-
-    if (storedSettings) {
-      try {
-        setSettings(JSON.parse(storedSettings));
-      } catch (e) {
-        setSettings(DEFAULT_SETTINGS);
-      }
-    } else {
-      setSettings(DEFAULT_SETTINGS);
-    }
+    initData();
   }, []);
 
   // Show transition notifications
@@ -183,11 +220,25 @@ export default function App() {
 
   const [confirmReset, setConfirmReset] = useState(false);
 
-  // Safe task saver
-  const saveTasks = (newTasks: Task[], sortImmediately = true) => {
+  // Safe task saver with async full-stack API writing
+  const saveTasks = async (newTasks: Task[], sortImmediately = true) => {
     const sorted = sortImmediately ? sortTasks(newTasks) : newTasks;
     setTasks(sorted);
     localStorage.setItem(LOCAL_STORAGE_KEY_TASKS, JSON.stringify(sorted));
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sorted),
+      });
+      if (res.ok) {
+        // Automatically sync the modified change list feed in UI
+        fetchChangesToday();
+      }
+    } catch (e) {
+      console.warn('Failed to commit tasks to persistent server', e);
+    }
   };
 
   // Safe settings saver
@@ -201,6 +252,17 @@ export default function App() {
   const handleUpdateDepartments = (updatedDepts: Department[]) => {
     setDepartments(updatedDepts);
     localStorage.setItem(LOCAL_STORAGE_KEY_DEPARTMENTS, JSON.stringify(updatedDepts));
+  };
+
+  // Handles daily logs wipe
+  const handleClearChangesHistory = async () => {
+    try {
+      await fetch('/api/changes/reset', { method: 'POST' });
+      fetchChangesToday();
+      showToast('Recorded modifications cleared for today.', 'success');
+    } catch {
+      showToast('Wipe command aborted.', 'info');
+    }
   };
 
   // Handle direct inline task modifications directly in the timeline
@@ -296,6 +358,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100/50 text-slate-800 antialiased font-sans flex flex-col pb-16">
+      
+      {/* Read-Only mode banner */}
+      {isReadOnly && (
+        <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 text-white font-extrabold text-[11px] uppercase tracking-widest text-center py-2 px-6 shadow-xs flex items-center justify-center gap-2 select-none">
+          <span className="flex items-center gap-1.5 animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Staging Operations Live Monitor Active
+          </span>
+          <span className="text-indigo-200 font-medium">•</span>
+          <a href="?" className="underline hover:text-indigo-100 font-bold tracking-normal transition-colors">
+            Switch back to Scheduling Editor
+          </a>
+        </div>
+      )}
+
       {/* Dynamic Toast System */}
       {notification && (
         <div 
@@ -311,97 +388,166 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Top Header Strip */}
-      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-md">
-        <div className="max-w-[1600px] mx-auto px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-inner flex-shrink-0">
-              <Layers className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                Interactive Event Master Scheduler
-                <span className="text-[10px] bg-indigo-500/25 border border-indigo-400/40 px-2 py-0.5 rounded text-indigo-300 font-extrabold uppercase tracking-wide">Time-Slot V2</span>
-              </h1>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Dynamic Stage Production grid. Map prep-works, track days/slots, automatically organize task lists.
-              </p>
-            </div>
-          </div>
 
-          {/* Quick instructions / Revert default */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleResetToDefault}
-              className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white border border-slate-700 hover:border-slate-500 bg-slate-800 px-3.5 py-2 rounded-lg font-bold transition-all duration-150 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-              Reset Spreadsheet Demo
-            </button>
-          </div>
-        </div>
-      </header>
 
       {/* Controller Toolbar & Workspace Containers */}
       <main className="max-w-[1700px] mx-auto px-4 md:px-6 mt-6 w-full flex-grow flex flex-col gap-6">
         
         {/* Row 1: Configurations & Filters */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          
-          {/* Setup Menu Card Column */}
-          <div className="lg:col-span-2">
-            <SetupMenu 
-              settings={settings} 
-              onUpdateSettings={saveSettings} 
-              onResetToDefault={handleResetToDefault}
-            />
+        {isReadOnly ? (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+            {/* Staging Monitor Info Card */}
+            <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-center min-h-[142px]">
+              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                {settings.projectName}
+                <span className="text-[9px] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-indigo-700 font-extrabold uppercase tracking-widest leading-none">
+                  Live View-Only Feed
+                </span>
+              </h2>
+              <p className="text-xs text-slate-505 font-medium mt-1.5 max-w-xl">
+                Active Staging & Equipment Rigging grid. Tracking from {settings.startDate} through {settings.endDate}. Clicking, dragging, and edits have been disabled for security.
+              </p>
+              <div className="flex items-center gap-2 mt-4 text-[11px] font-bold text-slate-400">
+                <Calendar className="w-4 h-4 text-indigo-500" />
+                <span>Production Horizon Span: {settings.startDate} ➜ {settings.endDate}</span>
+              </div>
+            </div>
+
+            {/* Read-Only Filters Column */}
+            <div className="lg:col-span-1">
+              <DepartmentFilter
+                departments={departments}
+                onUpdateDepartments={handleUpdateDepartments}
+                selectedDeptFilter={selectedDeptFilter}
+                onSelectDeptFilter={setSelectedDeptFilter}
+                tasks={tasks}
+                onUpdateTask={handleUpdateTask}
+                isReadOnly={true}
+              />
+            </div>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+            
+            {/* Setup Menu Card Column */}
+            <div className="xl:col-span-2 shadow-xs">
+              <SetupMenu 
+                settings={settings} 
+                onUpdateSettings={saveSettings} 
+                onResetToDefault={handleResetToDefault}
+                onCopyShareLink={() => {
+                  const url = `${window.location.origin}${window.location.pathname}?mode=view`;
+                  navigator.clipboard.writeText(url);
+                  showToast('🔗 Shareable View-Only link copied to clipboard!', 'success');
+                }}
+              />
+            </div>
 
-          {/* Department Selection Filter Menu Card Column */}
-          <DepartmentFilter
-            departments={departments}
-            onUpdateDepartments={handleUpdateDepartments}
-            selectedDeptFilter={selectedDeptFilter}
-            onSelectDeptFilter={setSelectedDeptFilter}
-            tasks={tasks}
-            onUpdateTask={handleUpdateTask}
-          />
+            {/* Department Selection Filter Menu Card Column */}
+            <div className="xl:col-span-1 shadow-xs">
+              <DepartmentFilter
+                departments={departments}
+                onUpdateDepartments={handleUpdateDepartments}
+                selectedDeptFilter={selectedDeptFilter}
+                onSelectDeptFilter={setSelectedDeptFilter}
+                tasks={tasks}
+                onUpdateTask={handleUpdateTask}
+              />
+            </div>
 
-        </div>
+            {/* Operations Daily Logger Controller */}
+            <div className="xl:col-span-1 shadow-xs">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between min-h-[162px] h-full">
+                <div>
+                  <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                      Operational Logger
+                    </span>
+                    <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-150 text-indigo-700 uppercase">
+                      Active Buffer
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 mt-2">
+                    <div className="flex justify-between items-center bg-slate-50 border border-slate-100 p-2 rounded-lg">
+                      <span className="text-[11px] text-slate-500 font-bold">Logged Changes Today:</span>
+                      <span className="text-[11px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-750 rounded-full">
+                        {changesToday.length}
+                      </span>
+                    </div>
+
+                    {changesToday.length > 0 ? (
+                      <div className="max-h-[105px] overflow-y-auto pr-1 space-y-1.5 text-[9.5px]">
+                        {changesToday.slice(-4).map((c, i) => (
+                          <div key={i} className="border-l-2 pl-1.5 py-0.5" style={{ borderColor: c.type === 'Add' ? '#10b981' : c.type === 'Update' ? '#f59e0b' : '#ef4444' }}>
+                            <span className="font-extrabold text-slate-700">[{c.type}]</span> <span className="text-slate-500">{c.description}</span>
+                          </div>
+                        ))}
+                        {changesToday.length > 4 && (
+                          <div className="text-[8.5px] text-slate-400 font-bold tracking-tight text-right pr-1">
+                            + {changesToday.length - 4} more logs history
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                        No modifications written to logs yet. Add, edit or delete tasks to record actions.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {changesToday.length > 0 && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100">
+                    <button
+                      onClick={handleClearChangesHistory}
+                      className="w-full text-[10.5px] font-extrabold py-2 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-550 hover:text-rose-600 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      Wipe Recorded Logs
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Row 2: Left Input Form & Main Interactive Spreadsheet Timeline */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
           
           {/* Form Task Addition - Side Box */}
-          <div className="xl:col-span-1 space-y-4">
-            <TaskForm 
-              departments={departments}
-              onSubmit={handleFormSubmit}
-              editingTask={editingTask}
-              onCancelEdit={() => setEditingTask(null)}
-              defaultDate={settings.startDate}
-            />
+          {!isReadOnly && (
+            <div className="xl:col-span-1 space-y-4">
+              <TaskForm 
+                departments={departments}
+                onSubmit={handleFormSubmit}
+                editingTask={editingTask}
+                onCancelEdit={() => setEditingTask(null)}
+                defaultDate={settings.startDate}
+              />
 
-            {/* Documentation Helper */}
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3 border border-indigo-950">
-              <h4 className="text-xs font-extrabold tracking-widest text-indigo-300 flex items-center gap-1.5 uppercase">
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                Time-Slot Spreadsheet Help
-              </h4>
-              <p className="text-[11px] leading-relaxed text-indigo-150 font-medium">
-                Our responsive staging grid replicates professional live event workflow charts. Tasks are structured sequentially by date and time automatically upon entry.
-              </p>
-              <ul className="text-[11px] space-y-1.5 text-indigo-200 list-disc list-inside">
-                <li>Create prep rows with June/prior dates.</li>
-                <li>Enter active show dates inside the July span.</li>
-                <li>Leave time blank to span ALL DAY slots on the grid.</li>
-                <li>Click any empty grid square to quickly scheduler a task draft.</li>
-              </ul>
+              {/* Documentation Helper */}
+              <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3 border border-indigo-950">
+                <h4 className="text-xs font-extrabold tracking-widest text-indigo-300 flex items-center gap-1.5 uppercase">
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  Time-Slot Spreadsheet Help
+                </h4>
+                <p className="text-[11px] leading-relaxed text-indigo-150 font-medium font-sans">
+                  Our responsive staging grid replicates professional live event workflow charts. Tasks are structured sequentially by date and time automatically upon entry.
+                </p>
+                <ul className="text-[11px] space-y-1.5 text-indigo-200 list-disc list-inside col-span-1">
+                  <li>Create prep rows with June/prior dates.</li>
+                  <li>Enter active show dates inside the July span.</li>
+                  <li>Leave time blank to span ALL DAY slots on the grid.</li>
+                  <li>Click any empty grid square to quickly scheduler a task draft.</li>
+                </ul>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Master Unified Spreadsheet View - Main View */}
-          <div className="xl:col-span-3">
+          <div className={isReadOnly ? "xl:col-span-4" : "xl:col-span-3"}>
             <UnifiedTimeline 
               tasks={tasks}
               settings={settings}
@@ -411,12 +557,25 @@ export default function App() {
               onUpdateTask={handleUpdateTask}
               onQuickAddAtSlot={handleQuickAddAtSlot}
               selectedDeptFilter={selectedDeptFilter}
+              showToast={showToast}
+              isReadOnly={isReadOnly}
             />
           </div>
 
         </div>
 
       </main>
+
+      {/* Floating high-fidelity task editing modal window */}
+      <TaskEditModal
+        isOpen={editingTask !== null}
+        onClose={() => setEditingTask(null)}
+        departments={departments}
+        task={editingTask}
+        onSubmit={handleFormSubmit}
+        onDelete={handleDeleteTask}
+      />
+
     </div>
   );
 }

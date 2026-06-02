@@ -14,6 +14,7 @@ interface DepartmentFilterProps {
   onSelectDeptFilter: (code: string) => void;
   tasks: Task[];
   onUpdateTask: (task: Task, shouldSort?: boolean) => void;
+  isReadOnly?: boolean;
 }
 
 const PRESET_COLORS = [
@@ -40,6 +41,7 @@ export default function DepartmentFilter({
   onSelectDeptFilter,
   tasks,
   onUpdateTask,
+  isReadOnly = false,
 }: DepartmentFilterProps) {
   const [isEditing, setIsEditing] = useState(false);
   
@@ -130,29 +132,31 @@ export default function DepartmentFilter({
             {isEditing ? 'Manage Department Tags' : 'Department Focus Filter'}
           </span>
 
-          <button
-            onClick={() => {
-              setIsEditing(!isEditing);
-              setError(null);
-            }}
-            className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded transition-all cursor-pointer ${
-              isEditing
-                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200/60'
-            }`}
-          >
-            {isEditing ? (
-              <>
-                <Check className="w-3.5 h-3.5" />
-                Done Editing
-              </>
-            ) : (
-              <>
-                <Settings className="w-3.5 h-3.5" />
-                Edit Tags
-              </>
-            )}
-          </button>
+          {!isReadOnly && (
+            <button
+              onClick={() => {
+                setIsEditing(!isEditing);
+                setError(null);
+              }}
+              className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded transition-all cursor-pointer ${
+                isEditing
+                  ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200/60'
+              }`}
+            >
+              {isEditing ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  Done Editing
+                </>
+              ) : (
+                <>
+                  <Settings className="w-3.5 h-3.5" />
+                  Edit Tags
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         {/* --- EDIT MODE --- */}
