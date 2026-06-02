@@ -1,0 +1,6 @@
+{
+  "name": "Event Master Scheduler",
+  "description": "An interactive event timeline and task master scheduler with slot-based visual grids and department filtering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
