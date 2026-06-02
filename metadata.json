@@ -1,6 +1,6 @@
 {
-  "name": "Event Master Scheduler",
-  "description": "An interactive event timeline and task master scheduler with slot-based visual grids and department filtering.",
+  "name": "Basel Tattoo 2026 Scheduler",
+  "description": "An interactive event timeline and task master scheduler with slot-based visual grids, bulk Gemini import, and landscape PDF blueprint exports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

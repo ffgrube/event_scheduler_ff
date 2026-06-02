@@ -19,6 +19,8 @@ export interface Task {
   time: string; // HH:MM, empty means "All Day"
   details: string;
   status: TaskStatus;
+  durationDays?: number; // Optional duration in days, defaulting to 1
+  subtasks?: Omit<Task, 'code' | 'date'>[]; // Recursive subtasks
 }
 
 export interface ProjectSettings {

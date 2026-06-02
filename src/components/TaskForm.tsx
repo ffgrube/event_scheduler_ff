@@ -21,6 +21,7 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
   const [time, setTime] = useState('');
   const [details, setDetails] = useState('');
   const [status, setStatus] = useState<TaskStatus>('Not Started');
+  const [durationDays, setDurationDays] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
   // Sync state if defaultDate changes or we start editing a task
@@ -31,11 +32,13 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
       setTime(editingTask.time || '');
       setDetails(editingTask.details);
       setStatus(editingTask.status);
+      setDurationDays(editingTask.durationDays || 1);
     } else {
       // Keep old select code/date, just clear details & time for quick successive additions
       setDetails('');
       setTime('');
       setStatus('Not Started');
+      setDurationDays(1);
     }
   }, [editingTask]);
 
@@ -69,6 +72,7 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
       time,
       details: details.trim(),
       status,
+      durationDays,
     });
 
     // Reset inputs for successive quick additions
@@ -130,8 +134,8 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
           </div>
         </div>
 
-        {/* Date and Time selectors side by side */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Date, Time, and Duration selectors */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="space-y-1.5">
             <span className="block text-xs font-semibold text-slate-600">Task Date</span>
             <div className="relative">
@@ -158,6 +162,23 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
                 className="w-full text-xs pl-8 pr-2 py-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="block text-xs font-semibold text-slate-600 flex justify-between">
+              <span>Duration (Days)</span>
+              <span className="text-[10px] text-slate-400 font-normal">Min: 1</span>
+            </span>
+            <div className="relative">
+              <input
+                type="number"
+                min={1}
+                required
+                value={durationDays}
+                onChange={(e) => setDurationDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono"
               />
             </div>
           </div>

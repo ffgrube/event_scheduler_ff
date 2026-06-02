@@ -87,6 +87,75 @@ export default function UnifiedTimeline({
     return task.code === selectedDeptFilter;
   });
 
+  // Structural subtasks rendering contract
+  interface RowItem {
+    type: 'parent' | 'subtask';
+    task: Task;
+    depth: number;
+    itemNumberLabel: string;
+    originalId: string;
+  }
+
+  const flattenTasks = (tasksList: Task[]): RowItem[] => {
+    const result: RowItem[] = [];
+    const recurse = (
+      item: any,
+      depth: number,
+      parentTask: Task | undefined,
+      itemNumberLabel: string
+    ) => {
+      if (depth === 0) {
+        const taskVal = item as Task;
+        result.push({
+          type: 'parent',
+          task: taskVal,
+          depth: 0,
+          itemNumberLabel,
+          originalId: taskVal.id
+        });
+        if (taskVal.subtasks && taskVal.subtasks.length > 0) {
+          taskVal.subtasks.forEach((sub, sIdx) => {
+            recurse(sub, depth + 1, taskVal, `${itemNumberLabel}.${sIdx + 1}`);
+          });
+        }
+      } else {
+        const subtaskVal = item;
+        const virtualTask: Task = {
+          id: subtaskVal.id,
+          code: parentTask?.code || 'GEN',
+          date: parentTask?.date || '',
+          time: subtaskVal.time || '',
+          details: subtaskVal.details || '',
+          status: subtaskVal.status || 'Not Started',
+          durationDays: subtaskVal.durationDays || 1,
+          subtasks: subtaskVal.subtasks
+        };
+
+        result.push({
+          type: 'subtask',
+          task: virtualTask,
+          depth,
+          itemNumberLabel,
+          originalId: subtaskVal.id
+        });
+
+        if (subtaskVal.subtasks && subtaskVal.subtasks.length > 0) {
+          subtaskVal.subtasks.forEach((nestedSub, nsIdx) => {
+            recurse(nestedSub, depth + 1, parentTask, `${itemNumberLabel}.${nsIdx + 1}`);
+          });
+        }
+      }
+    };
+
+    tasksList.forEach((task, idx) => {
+      recurse(task, 0, undefined, `${idx + 1}`);
+    });
+
+    return result;
+  };
+
+  const flattenedRows = flattenTasks(filteredTasks);
+
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda'>('agenda');
   const [highContrastGrid, setHighContrastGrid] = useState(false);
@@ -190,13 +259,40 @@ export default function UnifiedTimeline({
           return 'All Day';
         };
 
-        const sortedDayTasks = [...dayTasks].sort((a, b) => {
-          const slotA = getSlotLabel(a);
-          const slotB = getSlotLabel(b);
-          return (slotOrder[slotA] || 9) - (slotOrder[slotB] || 9);
+        const dayFlattened: { task: Task; prefix: string; depth: number }[] = [];
+        const flatRecurse = (item: any, depth: number, parentCode: string) => {
+          if (depth === 0) {
+            dayFlattened.push({ task: item, prefix: '', depth: 0 });
+            if (item.subtasks && item.subtasks.length > 0) {
+              item.subtasks.forEach((sub: any) => {
+                flatRecurse(sub, depth + 1, item.code);
+              });
+            }
+          } else {
+            const virtual: Task = {
+              id: item.id,
+              code: parentCode,
+              date: dayDate,
+              time: item.time || '',
+              details: item.details || '',
+              status: item.status || 'Not Started',
+              durationDays: item.durationDays || 1,
+              subtasks: item.subtasks
+            };
+            dayFlattened.push({ task: virtual, prefix: '   ', depth });
+            if (item.subtasks && item.subtasks.length > 0) {
+              item.subtasks.forEach((nestedSub: any) => {
+                flatRecurse(nestedSub, depth + 1, parentCode);
+              });
+            }
+          }
+        };
+
+        dayTasks.forEach((task) => {
+          flatRecurse(task, 0, task.code);
         });
 
-        sortedDayTasks.forEach((task) => {
+        dayFlattened.forEach(({ task, depth }) => {
           if (cursorY > pageHeight - 25) {
             drawFooter(pageNum);
             doc.addPage();
@@ -213,24 +309,24 @@ export default function UnifiedTimeline({
 
           // Draw small color marker
           doc.setFillColor(r, g, b);
-          doc.circle(marginX + 3, cursorY + 2.5, 2, 'F');
+          doc.circle(marginX + 3 + (depth * 4), cursorY + 2.5, 1.5, 'F');
 
           // Tag
           doc.setFont('Helvetica', 'bold');
           doc.setFontSize(9);
           doc.setTextColor(r, g, b);
-          doc.text(`[${task.code}]`, marginX + 8, cursorY + 3.5);
+          doc.text(`[${task.code}]`, marginX + 8 + (depth * 4), cursorY + 3.5);
 
           // Slot Label
           doc.setFont('Helvetica', 'bold');
           doc.setTextColor(100, 116, 139); // slate-500
-          doc.text(`${activeSlot} (${task.time || 'All Day'}):`, marginX + 24, cursorY + 3.5);
+          doc.text(`${activeSlot} (${task.time || 'All Day'}):`, marginX + 24 + (depth * 4), cursorY + 3.5);
 
           // Details text wrap helper
           doc.setFont('Helvetica', 'normal');
           doc.setTextColor(51, 65, 85); // slate-700
           
-          const descX = marginX + 54;
+          const descX = marginX + 54 + (depth * 4);
           const maxDescWidth = pageWidth - marginX - descX;
           const splitDetails = doc.splitTextToSize(task.details || 'No task description available.', maxDescWidth);
           
@@ -486,37 +582,19 @@ export default function UnifiedTimeline({
               {dateRange.map((dayDate, dayIdx) => (
                 <th 
                   key={dayDate} 
-                  colSpan={3} 
                   style={{ backgroundColor: '#0f172a', color: '#ffffff', borderColor: '#334155' }}
-                  className="text-center text-[10px] font-extrabold uppercase border-r py-1 tracking-wide min-w-[150px]"
+                  className="text-center text-[10px] font-extrabold uppercase border-r py-2 tracking-wide min-w-[120px]"
                 >
                   <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
                   <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
                 </th>
               ))}
             </tr>
-            {/* Time Slot Labels Column Header */}
-            <tr style={{ backgroundColor: '#334155', color: '#cbd5e1', borderBottom: '1px solid #475569' }} className="text-[9px] font-semibold text-center select-none">
-              {/* Padding cells for Sticky Headers with matching sizes */}
-              <th style={{ backgroundColor: '#334155', borderColor: '#475569' }} className="sticky left-0 w-12 min-w-[48px] max-w-[48px] z-30 border-r"></th>
-              <th style={{ backgroundColor: '#334155', borderColor: '#475569' }} className="sticky left-12 w-16 min-w-[64px] max-w-[64px] z-30 border-r"></th>
-              <th style={{ backgroundColor: '#334155', borderColor: '#475569' }} className="sticky left-28 w-32 min-w-[128px] max-w-[128px] z-30 border-r"></th>
-              <th style={{ backgroundColor: '#334155', borderColor: '#475569' }} className="sticky left-60 w-[460px] min-w-[460px] z-30 border-r"></th>
- 
-              {/* Day Subdivision Slots */}
-              {dateRange.map((dayDate) => (
-                <React.Fragment key={`sub-${dayDate}`}>
-                  <th style={{ backgroundColor: '#1e293b', color: '#cbd5e1', borderColor: '#475569' }} className="py-1 px-1 border-r w-[50px] uppercase font-bold text-[9px]">Early</th>
-                  <th style={{ backgroundColor: '#1e293b', color: '#cbd5e1', borderColor: '#475569' }} className="py-1 px-1 border-r w-[50px] uppercase font-bold text-[9px]">Mid</th>
-                  <th style={{ backgroundColor: '#1e293b', color: '#cbd5e1', borderColor: '#475565' }} className="py-1 px-1 border-r w-[50px] uppercase font-bold text-[9px]">Evening</th>
-                </React.Fragment>
-              ))}
-            </tr>
           </thead>
           <tbody>
-            {filteredTasks.length === 0 ? (
+            {flattenedRows.length === 0 ? (
               <tr>
-                <td colSpan={4 + dateRange.length * 3} className="px-6 py-12 text-center text-slate-400 bg-slate-50/50">
+                <td colSpan={4 + dateRange.length} className="px-6 py-12 text-center text-slate-400 bg-slate-50/50">
                   <div className="flex flex-col items-center justify-center gap-2 max-w-md mx-auto">
                     <AlertCircle className="w-8 h-8 text-slate-300" />
                     <p className="text-sm font-semibold text-slate-700">No tasks found</p>
@@ -527,14 +605,14 @@ export default function UnifiedTimeline({
                 </td>
               </tr>
             ) : (
-              filteredTasks.map((task, idx) => {
-                const taskSlot = getTimeSlot(task.time);
-                const isHovered = hoveredRowId === task.id;
+              flattenedRows.map((row, idx) => {
+                const task = row.task;
+                const isHovered = hoveredRowId === row.originalId;
 
                 return (
                   <tr 
-                    key={task.id}
-                    onMouseEnter={() => setHoveredRowId(task.id)}
+                    key={`row-${row.originalId}`}
+                    onMouseEnter={() => setHoveredRowId(row.originalId)}
                     onMouseLeave={() => {
                       setHoveredRowId(null);
                       setConfirmingDeleteId(null);
@@ -544,15 +622,15 @@ export default function UnifiedTimeline({
                       backgroundColor: isHovered ? '#f1f5f9' : '#ffffff'
                     }}
                   >
-                    {/* 1. Item # */}
+                    {/* 1. Item Label */}
                     <td 
                       style={{
                         backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
                         borderRight: '1px solid #e2e8f0'
                       }}
-                      className="px-3 py-2 text-center text-xs font-mono font-medium text-slate-400 sticky left-0 z-20 w-12 min-w-[48px] max-w-[48px]"
+                      className="px-3 py-2 text-center text-[11px] font-mono font-bold text-slate-400 sticky left-0 z-20 w-12 min-w-[48px] max-w-[48px]"
                     >
-                      {idx + 1}
+                      {row.itemNumberLabel}
                     </td>
 
                     {/* 2. Department CODE dropdown */}
@@ -563,10 +641,10 @@ export default function UnifiedTimeline({
                       }}
                       className="px-2 py-2 text-center sticky left-12 z-20 w-16 min-w-[64px] max-w-[64px]"
                     >
-                      {showReadOnlyLayout ? (
+                      {showReadOnlyLayout || row.type === 'subtask' ? (
                         <div
                           style={{ backgroundColor: getDeptColor(task.code) }}
-                          className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center min-w-[48px] max-w-[56px] select-none mx-auto"
+                          className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center min-w-[48px] max-w-[56px] select-none mx-auto opacity-80"
                         >
                           {task.code}
                         </div>
@@ -596,8 +674,8 @@ export default function UnifiedTimeline({
                       }}
                       className="px-1 py-1 sticky left-28 z-20 w-32 min-w-[128px] max-w-[128px]"
                     >
-                      {showReadOnlyLayout ? (
-                        <div className="w-full px-1 py-0.5 text-xs font-bold text-slate-700 select-all font-mono">
+                      {showReadOnlyLayout || row.type === 'subtask' ? (
+                        <div className="w-full px-1 py-0.5 text-xs font-semibold text-slate-500 select-all font-mono">
                           {task.date}
                         </div>
                       ) : (
@@ -620,7 +698,7 @@ export default function UnifiedTimeline({
                       )}
                     </td>
 
-                    {/* 4. Task Details input with Direct Actions - guaranteed 460px to show complete text */}
+                    {/* 4. Task Details input with Direct Actions */}
                     <td 
                       style={{
                         backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
@@ -628,174 +706,191 @@ export default function UnifiedTimeline({
                       }}
                       className="px-2 py-1 sticky left-60 z-20 w-[460px] min-w-[460px] max-w-[460px]"
                     >
-                      {showReadOnlyLayout ? (
-                        <div className="w-full px-1.5 py-1 text-xs font-semibold text-slate-700 select-all leading-tight break-words" title={task.details}>
-                          {task.details}
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-1.5 w-full">
-                          <input
-                            type="text"
-                            value={task.details}
-                            onChange={(e) => {
-                              onUpdateTask({ ...task, details: e.target.value }, false);
-                            }}
-                            onBlur={() => {
-                              onUpdateTask(task, true);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                            className="w-full bg-transparent px-1.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded outline-none border border-transparent transition-all"
-                            title="Click directly to edit this task details"
-                          />
-                          
-                          {/* Direct action buttons (Always visible to ensure 100% reliability on touch & iframe) */}
-                          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 rounded-lg px-1 py-0.5 flex-shrink-0 shadow-2xs no-print">
-                            <button
-                              onClick={() => {
-                                onEditTask(task);
+                      <div className="flex items-center gap-1.5 w-full">
+                        {/* Hierarchical list identation visual tree connectors */}
+                        {row.depth > 0 && (
+                          <span 
+                            style={{ paddingLeft: `${(row.depth - 1) * 16}px` }}
+                            className="text-indigo-400 font-black font-mono select-none"
+                          >
+                            └─
+                          </span>
+                        )}
+                        <div className="flex-grow flex items-center justify-between gap-1.5 min-w-0">
+                          {showReadOnlyLayout ? (
+                            <div className={`w-full px-1.5 py-1 font-semibold text-slate-700 select-all leading-tight break-words ${isGeneratingPDF ? 'text-[10px]' : 'text-xs'}`} title={task.details}>
+                              {task.details}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={task.details}
+                              onChange={(e) => {
+                                onUpdateTask({ ...task, details: e.target.value }, false);
                               }}
-                              title="Open in pop-up editing window"
-                              className="p-1 hover:bg-indigo-50 hover:text-indigo-600 text-slate-400 rounded transition-colors cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            
-                            {confirmingDeleteId === task.id ? (
+                              onBlur={() => {
+                                onUpdateTask(task, true);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="w-full bg-transparent px-1.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded outline-none border border-transparent transition-all min-w-0"
+                              title="Click directly to edit this task details"
+                            />
+                          )}
+
+                          {/* Direct action buttons (Always visible to ensure 100% reliability) */}
+                          {!showReadOnlyLayout && (
+                            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 rounded-lg px-1 py-0.5 flex-shrink-0 shadow-2xs no-print">
                               <button
                                 onClick={() => {
-                                  onDeleteTask(task.id);
-                                  setConfirmingDeleteId(null);
+                                  onEditTask(task);
                                 }}
-                                className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[9px] rounded transition-all uppercase select-none duration-100 animate-pulse cursor-pointer"
-                                title="Click again to confirm deletion from schedule"
+                                title="Open in pop-up editing window"
+                                className="p-1 hover:bg-indigo-50 hover:text-indigo-600 text-slate-400 rounded transition-colors cursor-pointer"
                               >
-                                Confirm
+                                <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmingDeleteId(task.id)}
-                                title="Delete task from schedule"
-                                className="p-1 hover:bg-rose-100 hover:text-rose-600 text-slate-400 rounded transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
+
+                              {/* Plus button to add subtasks recursively */}
+                              {row.type === 'parent' && (
+                                <button
+                                  onClick={() => {
+                                    const nestedSubtaskDraft = {
+                                      id: '',
+                                      code: task.code,
+                                      date: task.date,
+                                      time: '',
+                                      details: '',
+                                      status: 'Not Started' as TaskStatus,
+                                      durationDays: 1,
+                                      parentTaskId: task.id
+                                    };
+                                    onEditTask(nestedSubtaskDraft as any);
+                                  }}
+                                  title="Add a subtask indented under this item"
+                                  className="p-1 hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 rounded transition-colors cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              
+                              {confirmingDeleteId === row.originalId ? (
+                                <button
+                                  onClick={() => {
+                                    onDeleteTask(row.originalId);
+                                    setConfirmingDeleteId(null);
+                                  }}
+                                  className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[9px] rounded transition-all uppercase select-none duration-100 animate-pulse cursor-pointer"
+                                  title="Click again to confirm deletion from schedule"
+                                >
+                                  Confirm
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmingDeleteId(row.originalId)}
+                                  title="Delete task from schedule"
+                                  className="p-1 hover:bg-rose-100 hover:text-rose-600 text-slate-400 rounded transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </td>
 
-                    {/* Right Side Timeline Plot Cells */}
-                    {dateRange.map((dayDate) => {
-                      const isSameDay = task.date === dayDate;
+                    {/* Right Side Timeline Plot Cells - SINGLE DAY SOLID COLUMNS */}
+                    {(() => {
+                      const cells: React.ReactNode[] = [];
+                      let skipCount = 0;
                       
-                      return (
-                        <React.Fragment key={`cell-${task.id}-${dayDate}`}>
-                          {/* EARLY SLOT CELL */}
-                          <td 
-                            onClick={() => {
-                              if (showReadOnlyLayout) return;
-                              if (isSameDay && (taskSlot === 'Early' || taskSlot === 'All Day')) {
-                                  onEditTask(task);
-                              } else if (!isSameDay) {
-                                onQuickAddAtSlot(dayDate, 'Early');
-                              }
-                            }}
-                            style={{
-                              borderRight: '1px solid #e2e8f0',
-                              backgroundColor: isSameDay && (taskSlot === 'Early' || taskSlot === 'All Day') 
-                                ? '#f0f4ff' 
-                                : isHovered ? '#f1f5f9' : '#ffffff'
-                            }}
-                            className={`p-1 text-center min-w-[50px] transition-all relative ${
-                              showReadOnlyLayout ? 'cursor-default' : 'cursor-cell'
-                            }`}
-                          >
-                            {isSameDay && (taskSlot === 'Early' || taskSlot === 'All Day') ? (
-                              <div
-                                style={{ backgroundColor: getDeptColor(task.code) }}
-                                className={`w-full h-7 rounded text-[9px] font-extrabold text-white flex items-center justify-center shadow-xs select-none shrink-0 transition-transform ${showReadOnlyLayout ? 'cursor-default' : 'cursor-pointer active:scale-95'}`}
-                                title={`${task.code}: ${task.details} (${task.time || 'All Day'})${showReadOnlyLayout ? '' : ' - Click to edit'}`}
-                              >
-                                {task.code}
-                              </div>
-                            ) : !isSameDay && isHovered && !showReadOnlyLayout ? (
-                              <span className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-300 font-extrabold">+</span>
-                            ) : null}
-                          </td>
-
-                          {/* MID SLOT CELL */}
-                          <td 
-                            onClick={() => {
-                              if (showReadOnlyLayout) return;
-                              if (isSameDay && (taskSlot === 'Mid' || taskSlot === 'All Day')) {
+                      for (let dayIdx = 0; dayIdx < dateRange.length; dayIdx++) {
+                        const dayDate = dateRange[dayIdx];
+                        
+                        if (skipCount > 0) {
+                          skipCount--;
+                          continue; // skip rendering because a previous multi-day block spans this column
+                        }
+                        
+                        const isStartDay = task.date === dayDate;
+                        
+                        if (isStartDay) {
+                          // Calculate active span
+                          const duration = task.durationDays || 1;
+                          const colSpan = Math.min(duration, dateRange.length - dayIdx);
+                          skipCount = colSpan - 1;
+                          
+                          cells.push(
+                            <td 
+                              key={`cell-${row.originalId}-${dayDate}`}
+                              colSpan={colSpan}
+                              onClick={() => {
+                                if (showReadOnlyLayout) return;
                                 onEditTask(task);
-                              } else if (!isSameDay) {
-                                onQuickAddAtSlot(dayDate, 'Mid');
-                              }
-                            }}
-                            style={{
-                              borderRight: '1px solid #e2e8f0',
-                              backgroundColor: isSameDay && (taskSlot === 'Mid' || taskSlot === 'All Day') 
-                                ? '#f0f4ff' 
-                                : isHovered ? '#f1f5f9' : '#ffffff'
-                            }}
-                            className={`p-1 text-center min-w-[50px] transition-all relative ${
-                              showReadOnlyLayout ? 'cursor-default' : 'cursor-cell'
-                            }`}
-                          >
-                            {isSameDay && (taskSlot === 'Mid' || taskSlot === 'All Day') ? (
+                              }}
+                              style={{
+                                borderRight: '1px solid #e2e8f0',
+                                backgroundColor: '#f0f4ff', // lightly highlighted active track line
+                                padding: '6px'
+                              }}
+                              className={`text-center align-middle transition-all relative ${
+                                showReadOnlyLayout ? 'cursor-default' : 'cursor-pointer'
+                              }`}
+                            >
                               <div
                                 style={{ backgroundColor: getDeptColor(task.code) }}
-                                className={`w-full h-7 rounded text-[9px] font-extrabold text-white flex items-center justify-center shadow-xs select-none shrink-0 transition-transform ${showReadOnlyLayout ? 'cursor-default' : 'cursor-pointer active:scale-95'}`}
-                                title={`${task.code}: ${task.details} (${task.time || 'All Day'})${showReadOnlyLayout ? '' : ' - Click to edit'}`}
+                                className={`w-full min-h-[38px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1.5 transition-transform ${
+                                  showReadOnlyLayout ? 'cursor-default' : 'hover:scale-[1.01] active:scale-95 cursor-pointer'
+                                }`}
+                                title={`${task.code}: ${task.details} (${task.time || 'All Day'}) - Spans ${duration} day(s)${showReadOnlyLayout ? '' : ' - Click to edit'}`}
                               >
-                                {task.code}
+                                <span className="text-[10px] tracking-widest uppercase font-black">{task.code}</span>
+                                <span className="text-[9px] opacity-90 mt-0.5 font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+                                  {task.time || 'All Day'}
+                                </span>
                               </div>
-                            ) : !isSameDay && isHovered && !showReadOnlyLayout ? (
-                              <span className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-300 font-extrabold">+</span>
-                            ) : null}
-                          </td>
-
-                          {/* EVENING SLOT CELL */}
-                          <td 
-                            onClick={() => {
-                              if (showReadOnlyLayout) return;
-                              if (isSameDay && (taskSlot === 'Evening' || taskSlot === 'All Day')) {
-                                onEditTask(task);
-                              } else if (!isSameDay) {
-                                onQuickAddAtSlot(dayDate, 'Evening');
-                              }
-                            }}
-                            style={{
-                              borderRight: '1px solid #e2e8f0',
-                              backgroundColor: isSameDay && (taskSlot === 'Evening' || taskSlot === 'All Day') 
-                                ? '#f0f4ff' 
-                                : isHovered ? '#f1f5f9' : '#ffffff'
-                            }}
-                            className={`p-1 text-center min-w-[50px] transition-all relative ${
-                              showReadOnlyLayout ? 'cursor-default' : 'cursor-cell'
-                            }`}
-                          >
-                            {isSameDay && (taskSlot === 'Evening' || taskSlot === 'All Day') ? (
-                              <div
-                                style={{ backgroundColor: getDeptColor(task.code) }}
-                                className={`w-full h-7 rounded text-[9px] font-extrabold text-white flex items-center justify-center shadow-xs select-none shrink-0 transition-transform ${showReadOnlyLayout ? 'cursor-default' : 'cursor-pointer active:scale-95'}`}
-                                title={`${task.code}: ${task.details} (${task.time || 'All Day'})${showReadOnlyLayout ? '' : ' - Click to edit'}`}
-                              >
-                                {task.code}
-                              </div>
-                            ) : !isSameDay && isHovered && !showReadOnlyLayout ? (
-                              <span className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-300 font-extrabold">+</span>
-                            ) : null}
-                          </td>
-                        </React.Fragment>
-                      );
-                    })}
+                            </td>
+                          );
+                        } else {
+                          cells.push(
+                            <td 
+                              key={`cell-${row.originalId}-${dayDate}`}
+                              onClick={() => {
+                                if (showReadOnlyLayout) return;
+                                // Clicking empty grid cell opens add form prefilled with date & department!
+                                const draftTask = {
+                                  id: '',
+                                  code: selectedDeptFilter !== 'ALL' ? selectedDeptFilter : task.code,
+                                  date: dayDate,
+                                  time: '',
+                                  details: `New event task`,
+                                  status: 'Not Started' as TaskStatus,
+                                  durationDays: 1
+                                };
+                                onEditTask(draftTask as any);
+                              }}
+                              style={{
+                                borderRight: '1px solid #e2e8f0',
+                                backgroundColor: isHovered ? '#f8fafc' : '#ffffff'
+                              }}
+                              className={`p-2 text-center transition-all relative min-w-[120px] h-[48px] ${
+                                showReadOnlyLayout ? 'cursor-default' : 'cursor-cell group'
+                              }`}
+                            >
+                              {!showReadOnlyLayout && isHovered && (
+                                <span className="opacity-0 group-hover:opacity-100 text-xs text-indigo-300 font-extrabold inline-block transform hover:scale-125 transition-transform">+</span>
+                              )}
+                            </td>
+                          );
+                        }
+                      }
+                      
+                      return cells;
+                    })()}
                   </tr>
                 );
               })
@@ -812,8 +907,8 @@ export default function UnifiedTimeline({
             ? 'View-Only Mode Active: All operational values, dates, and details are static and non-editable.' 
             : 'Pro-tip: Click any cell in the grid to instantly add a new task, or edit the existing scheduled department task!'}
         </span>
-        <span className="font-medium text-[11px] text-slate-400">
-          Grid subdivisions: Early (&lt;12:00) • Mid (12:00-18:00) • Evening (&gt;=18:00)
+        <span className="font-medium text-[11px] text-slate-400 font-mono text-right">
+          Gantt Track Layout • High-Density SOLID Single-Day Briefing
         </span>
       </div>
 

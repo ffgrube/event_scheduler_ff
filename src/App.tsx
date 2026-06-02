@@ -266,9 +266,59 @@ export default function App() {
     }
   };
 
+  // Helper to recursively update a task object in the hierarchical list
+  const updateTaskInList = (list: any[], id: string, updatedFields: any): any[] => {
+    return list.map(item => {
+      if (item.id === id) {
+        return { ...item, ...updatedFields };
+      }
+      if (item.subtasks && item.subtasks.length > 0) {
+        return {
+          ...item,
+          subtasks: updateTaskInList(item.subtasks, id, updatedFields)
+        };
+      }
+      return item;
+    });
+  };
+
+  // Helper to recursively delete a task from the hierarchical list
+  const deleteTaskFromList = (list: any[], id: string): any[] => {
+    return list
+      .filter(item => item.id !== id)
+      .map(item => {
+        if (item.subtasks && item.subtasks.length > 0) {
+          return {
+            ...item,
+            subtasks: deleteTaskFromList(item.subtasks, id)
+          };
+        }
+        return item;
+      });
+  };
+
+  // Helper to recursively append a subtask to the matching parent ID
+  const appendSubtaskInList = (list: any[], parentId: string, newSubtask: any): any[] => {
+    return list.map(item => {
+      if (item.id === parentId) {
+        return {
+          ...item,
+          subtasks: [...(item.subtasks || []), newSubtask]
+        };
+      }
+      if (item.subtasks && item.subtasks.length > 0) {
+        return {
+          ...item,
+          subtasks: appendSubtaskInList(item.subtasks, parentId, newSubtask)
+        };
+      }
+      return item;
+    });
+  };
+
   // Handle direct inline task modifications directly in the timeline
   const handleUpdateTask = (updatedTask: Task, shouldSort = true) => {
-    const updatedTasks = tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
+    const updatedTasks = updateTaskInList(tasks, updatedTask.id, updatedTask);
     saveTasks(updatedTasks, shouldSort);
     if (shouldSort) {
       showToast('Timeline updated & sorted', 'success');
@@ -276,17 +326,27 @@ export default function App() {
   };
 
   // Handle addition or saving of edits
-  const handleFormSubmit = (taskData: Omit<Task, 'id'> & { id?: string }) => {
+  const handleFormSubmit = (taskData: Omit<Task, 'id'> & { id?: string; durationDays?: number; parentTaskId?: string }) => {
     if (taskData.id) {
       // Edit mode
-      const updatedTasks = tasks.map(t => 
-        t.id === taskData.id 
-          ? { ...t, ...taskData } as Task 
-          : t
-      );
+      const updatedTasks = updateTaskInList(tasks, taskData.id, taskData);
       saveTasks(updatedTasks, true);
       setEditingTask(null);
       showToast('Task details modified and auto-sorted', 'success');
+    } else if (taskData.parentTaskId) {
+      // Create nested subtask mode!
+      const newSubtask: Omit<Task, 'code' | 'date'> & { id: string } = {
+        id: `subtask-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        time: taskData.time,
+        details: taskData.details,
+        status: taskData.status,
+        durationDays: taskData.durationDays || 1,
+      };
+
+      const updatedTasks = appendSubtaskInList(tasks, taskData.parentTaskId, newSubtask);
+      saveTasks(updatedTasks, true);
+      setEditingTask(null);
+      showToast('Nested subtask created successfully!', 'success');
     } else {
       // Create mode
       const newTask: Task = {
@@ -296,6 +356,8 @@ export default function App() {
         time: taskData.time,
         details: taskData.details,
         status: taskData.status,
+        durationDays: taskData.durationDays || 1,
+        subtasks: [],
       };
       saveTasks([...tasks, newTask], true);
       showToast('Task added! Timeline automatically updated & sorted', 'success');
@@ -308,7 +370,7 @@ export default function App() {
   };
 
   const handleDeleteTask = (id: string) => {
-    const filtered = tasks.filter(t => t.id !== id);
+    const filtered = deleteTaskFromList(tasks, id);
     saveTasks(filtered, true);
     showToast('Task deleted from timeline', 'info');
     if (editingTask?.id === id) {

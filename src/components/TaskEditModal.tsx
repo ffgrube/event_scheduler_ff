@@ -30,6 +30,7 @@ export default function TaskEditModal({
   const [time, setTime] = useState('');
   const [details, setDetails] = useState('');
   const [status, setStatus] = useState<TaskStatus>('Not Started');
+  const [durationDays, setDurationDays] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -43,6 +44,7 @@ export default function TaskEditModal({
       setTime(task.time || '');
       setDetails(task.details);
       setStatus(task.status || 'Not Started');
+      setDurationDays(task.durationDays || 1);
       setError(null);
       setConfirmDelete(false);
 
@@ -84,6 +86,7 @@ export default function TaskEditModal({
       time,
       details: details.trim(),
       status,
+      durationDays,
     });
 
     onClose();
@@ -176,8 +179,8 @@ export default function TaskEditModal({
               </div>
             </div>
 
-            {/* 2. Date and Time field */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* 2. Date, Time, and Duration fields */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
                   Scheduler Date
@@ -206,6 +209,23 @@ export default function TaskEditModal({
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
                     className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg bg-white font-semibold select-all focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex justify-between">
+                  <span>Duration (Days)</span>
+                  <span className="text-[9px] text-slate-400 font-semibold normal-case">Min: 1</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={durationDays}
+                    onChange={(e) => setDurationDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full text-xs px-3.5 py-2.5 border border-slate-300 rounded-lg bg-white font-bold select-all focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono"
                   />
                 </div>
               </div>
