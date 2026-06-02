@@ -13,9 +13,10 @@ interface SetupMenuProps {
   onUpdateSettings: (settings: ProjectSettings) => void;
   onResetToDefault: () => void;
   onCopyShareLink?: () => void;
+  activeProjectId?: string;
 }
 
-export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault, onCopyShareLink }: SetupMenuProps) {
+export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault, onCopyShareLink, activeProjectId }: SetupMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [projectName, setProjectName] = useState(settings.projectName);
   const [startDate, setStartDate] = useState(settings.startDate);
@@ -89,19 +90,34 @@ export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault
         </div>
         <div className="flex items-center gap-2">
           {onCopyShareLink && (
-            <button
-              type="button"
-              id="copy-share-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopyShareLink();
-              }}
-              className="text-[11px] font-bold px-2.5 py-1.5 border border-indigo-200 bg-indigo-50/40 hover:bg-indigo-50 hover:border-indigo-300 text-indigo-700 rounded-lg transition-colors flex items-center gap-1"
-              title="Copy view-only share link for clients or staff"
-            >
-              <Link className="w-3.5 h-3.5" />
-              Copy Share Link
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                id="copy-share-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopyShareLink();
+                }}
+                className="text-[11px] font-bold px-2.5 py-1.5 border border-indigo-200 bg-indigo-50/40 hover:bg-indigo-50 hover:border-indigo-300 text-indigo-700 rounded-lg transition-colors flex items-center gap-1"
+                title="Copy view-only share link for clients or staff"
+              >
+                <Link className="w-3.5 h-3.5" />
+                Copy Share Link
+              </button>
+              <a
+                href={`?project=${activeProjectId || ''}&mode=view`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+                className="text-[11px] font-bold px-2.5 py-1.5 border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 hover:border-emerald-300 text-emerald-700 rounded-lg transition-colors flex items-center gap-1.5"
+                title="Open view-only share screen in a new window"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Open Share View
+              </a>
+            </div>
           )}
           <button 
             id="toggle-setup-btn"

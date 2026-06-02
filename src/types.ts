@@ -22,6 +22,10 @@ export interface Task {
   durationDays?: number; // Optional duration in days, defaulting to 1
   subtasks?: Omit<Task, 'code' | 'date'>[]; // Recursive subtasks
   parentTaskId?: string; // Parent Task ID if this is a subtask
+  dependencyTaskId?: string; // ID of a prior task this task depends on
+  notes?: string; // Detailed notes/descriptions for the task
+  startTime?: string; // Specific start time (e.g., "09:00")
+  endTime?: string; // Specific end time (e.g., "17:00")
 }
 
 export interface ProjectSettings {

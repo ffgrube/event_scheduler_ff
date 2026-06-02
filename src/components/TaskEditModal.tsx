@@ -15,6 +15,7 @@ interface TaskEditModalProps {
   task: Task | null; // if task.id starts with empty '' or doesn't exist, it's a draft
   onSubmit: (taskData: Omit<Task, 'id'> & { id?: string }) => void;
   onDelete?: (id: string) => void;
+  allTasks?: Task[];
 }
 
 export default function TaskEditModal({
@@ -24,6 +25,7 @@ export default function TaskEditModal({
   task,
   onSubmit,
   onDelete,
+  allTasks = [],
 }: TaskEditModalProps) {
   const [code, setCode] = useState('LOG');
   const [date, setDate] = useState('');
@@ -31,6 +33,10 @@ export default function TaskEditModal({
   const [details, setDetails] = useState('');
   const [status, setStatus] = useState<TaskStatus>('Not Started');
   const [durationDays, setDurationDays] = useState(1);
+  const [dependencyTaskId, setDependencyTaskId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -45,6 +51,10 @@ export default function TaskEditModal({
       setDetails(task.details);
       setStatus(task.status || 'Not Started');
       setDurationDays(task.durationDays || 1);
+      setDependencyTaskId(task.dependencyTaskId || '');
+      setNotes(task.notes || '');
+      setStartTime(task.startTime || '');
+      setEndTime(task.endTime || '');
       setError(null);
       setConfirmDelete(false);
 
@@ -61,6 +71,23 @@ export default function TaskEditModal({
   if (!isOpen || !task) return null;
 
   const isEditMode = task.id && task.id !== '';
+
+  const getFlatTasks = (list: Task[]): Task[] => {
+    const flat: Task[] = [];
+    const recurse = (item: Task) => {
+      flat.push(item);
+      if (item.subtasks && item.subtasks.length > 0) {
+        item.subtasks.forEach((sub: any) => {
+          recurse({ ...sub, code: item.code, date: item.date });
+        });
+      }
+    };
+    list.forEach(recurse);
+    return flat;
+  };
+
+  const flatAllTasks = getFlatTasks(allTasks);
+  const eligibleTasks = flatAllTasks.filter(t => t.id !== task.id);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,6 +115,10 @@ export default function TaskEditModal({
       status,
       durationDays,
       parentTaskId: task.parentTaskId,
+      dependencyTaskId: dependencyTaskId || undefined,
+      notes: notes.trim() || undefined,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
     });
 
     onClose();
@@ -244,6 +275,76 @@ export default function TaskEditModal({
                 onChange={(e) => setDetails(e.target.value)}
                 placeholder="e.g. Center stage audio check & cable patch logic"
                 className="w-full text-sm px-3.5 py-2.5 border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none bg-slate-50/20 focus:bg-white transition-all"
+              />
+            </div>
+
+            {/* Start and End Times */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex justify-between">
+                  <span>Start Time (Symbol: ▶)</span>
+                  <span className="text-[9px] text-slate-400 font-medium normal-case">Optional</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-[10px] text-indigo-500 font-extrabold select-none">▶</span>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full text-xs pl-8 pr-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex justify-between">
+                  <span>End Time (Symbol: ⏹)</span>
+                  <span className="text-[9px] text-slate-400 font-medium normal-case">Optional</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-[10px] text-indigo-500 font-extrabold select-none">⏹</span>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className="w-full text-xs pl-8 pr-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Task Dependency Selection */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex justify-between">
+                <span>Depends On (Prior Task Code/Detail)</span>
+                <span className="text-[9px] text-slate-400 font-medium normal-case">Optional Link</span>
+              </label>
+              <select
+                value={dependencyTaskId}
+                onChange={(e) => setDependencyTaskId(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border border-slate-300 rounded-lg bg-white text-slate-755 font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none cursor-pointer"
+              >
+                <option value="">-- No Dependency --</option>
+                {eligibleTasks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    [{t.code}] {t.details.length > 55 ? t.details.substring(0, 55) + '...' : t.details} ({t.date})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Detailed Notes Field */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex justify-between">
+                <span>Detailed Task Notes / Instructions</span>
+                <span className="text-[9px] text-slate-400 font-medium normal-case">Optional Context</span>
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add special instructions, setup notes, contact names, equipment or rig specifics..."
+                rows={3}
+                className="w-full text-xs px-3.5 py-2 border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none bg-slate-50/10 focus:bg-white resize-y transition-all"
               />
             </div>
 

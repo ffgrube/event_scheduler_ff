@@ -31,7 +31,9 @@ import {
   Check,
   Download,
   Eye,
-  Settings
+  Settings,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -81,6 +83,7 @@ export default function UnifiedTimeline({
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [colWidth, setColWidth] = useState<number>(105);
 
   // Generate the timeline dates list based on setup settings
   const dateRange = generateDateRange(settings.startDate, settings.endDate);
@@ -164,12 +167,31 @@ export default function UnifiedTimeline({
   const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda'>('agenda');
   const [highContrastGrid, setHighContrastGrid] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [exportDeptFilter, setExportDeptFilter] = useState<string>('ALL');
+  const [includeNotesInExport, setIncludeNotesInExport] = useState<boolean>(true);
+  const [exportOnlyWithNotes, setExportOnlyWithNotes] = useState<boolean>(false);
+  const [viewingNotesTask, setViewingNotesTask] = useState<Task | null>(null);
 
   const showReadOnlyLayout = isReadOnly || isGeneratingPDF;
 
   const getDeptColor = (code: string) => {
     const dept = departments.find(d => d.code.toUpperCase() === code.toUpperCase());
     return dept ? dept.color : (PDF_SAFE_COLORS[code] || '#64748B');
+  };
+
+  const getDependencyTask = (id?: string | null): Task | null => {
+    if (!id) return null;
+    const find = (list: any[]): any | null => {
+      for (const t of list) {
+        if (t.id === id) return t;
+        if (t.subtasks && t.subtasks.length > 0) {
+          const found = find(t.subtasks);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return find(tasks);
   };
 
   const generateAgendaPDF = () => {
@@ -227,7 +249,16 @@ export default function UnifiedTimeline({
 
       // Group tasks by day
       dateRange.forEach((dayDate, index) => {
-        const dayTasks = filteredTasks.filter(t => t.date === dayDate);
+        // Filter tasks based on PDF export configuration
+        const dayTasks = tasks.filter(t => {
+          if (t.date !== dayDate) return false;
+          // Filter by department if a specific one is selected
+          if (exportDeptFilter !== 'ALL' && t.code !== exportDeptFilter) return false;
+          // Filter out tasks without notes if exportOnlyWithNotes is enabled
+          if (exportOnlyWithNotes && !t.notes) return false;
+          return true;
+        });
+
         if (dayTasks.length === 0) return; // Skip days with zero tasks
 
         if (cursorY > pageHeight - 35) {
@@ -266,6 +297,17 @@ export default function UnifiedTimeline({
 
         const dayFlattened: { task: Task; prefix: string; depth: number }[] = [];
         const flatRecurse = (item: any, depth: number, parentCode: string) => {
+          // Skip if we want only tasks with notes, and this subitem does not have notes
+          if (exportOnlyWithNotes && !item.notes) {
+            // But still recurse subtasks to check them
+            if (item.subtasks && item.subtasks.length > 0) {
+              item.subtasks.forEach((sub: any) => {
+                flatRecurse(sub, depth + 1, parentCode);
+              });
+            }
+            return;
+          }
+
           if (depth === 0) {
             dayFlattened.push({ task: item, prefix: '', depth: 0 });
             if (item.subtasks && item.subtasks.length > 0) {
@@ -282,7 +324,11 @@ export default function UnifiedTimeline({
               details: item.details || '',
               status: item.status || 'Not Started',
               durationDays: item.durationDays || 1,
-              subtasks: item.subtasks
+              subtasks: item.subtasks,
+              notes: item.notes,
+              startTime: item.startTime,
+              endTime: item.endTime,
+              dependencyTaskId: item.dependencyTaskId
             };
             dayFlattened.push({ task: virtual, prefix: '   ', depth });
             if (item.subtasks && item.subtasks.length > 0) {
@@ -298,7 +344,7 @@ export default function UnifiedTimeline({
         });
 
         dayFlattened.forEach(({ task, depth }) => {
-          if (cursorY > pageHeight - 25) {
+          if (cursorY > pageHeight - 30) {
             drawFooter(pageNum);
             doc.addPage();
             pageNum++;
@@ -338,7 +384,55 @@ export default function UnifiedTimeline({
           doc.text(splitDetails, descX, cursorY + 3.5);
           
           const lineHeightMultiplier = splitDetails.length;
-          cursorY += 6 + (lineHeightMultiplier * 3);
+          cursorY += 5 + (lineHeightMultiplier * 3.5);
+
+          // Print detailed times if any of them are provided
+          if (task.startTime || task.endTime) {
+            if (cursorY > pageHeight - 15) {
+              drawFooter(pageNum);
+              doc.addPage();
+              pageNum++;
+              cursorY = 20;
+              drawHeader(pageNum);
+            }
+            doc.setFont('Helvetica', 'bold');
+            doc.setFontSize(8);
+            doc.setTextColor(99, 102, 241); // slate/indigo
+            let timeSegments = [];
+            if (task.startTime) timeSegments.push(`▶ Start: ${task.startTime}`);
+            if (task.endTime) timeSegments.push(`⏹ End: ${task.endTime}`);
+            doc.text(timeSegments.join('   '), descX, cursorY + 2.5);
+            cursorY += 4.5;
+          }
+
+          // Print detailed specifications / notes
+          if (includeNotesInExport && task.notes) {
+            const notesText = `Notes: ${task.notes}`;
+            const splitNotes = doc.splitTextToSize(notesText, maxDescWidth - 4);
+
+            if (cursorY + (splitNotes.length * 3.5) > pageHeight - 15) {
+              drawFooter(pageNum);
+              doc.addPage();
+              pageNum++;
+              cursorY = 20;
+              drawHeader(pageNum);
+            }
+
+            doc.setFont('Helvetica', 'italic');
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139); // slate-500
+
+            // Draw micro notes border bar on left side of paragraph
+            doc.setDrawColor(203, 213, 225); // slate-300
+            doc.setLineWidth(0.3);
+            doc.line(descX - 2, cursorY + 1, descX - 2, cursorY + (splitNotes.length * 3.5));
+
+            doc.text(splitNotes, descX, cursorY + 3);
+            cursorY += 4 + (splitNotes.length * 3.5);
+          }
+
+          // Gap between distinct items
+          cursorY += 2;
         });
 
         cursorY += 3;
@@ -545,6 +639,22 @@ export default function UnifiedTimeline({
             Export PDF Options
           </button>
 
+          {/* TIME ZOOM CONTROLLER SLIDER */}
+          <div className="flex items-center gap-2.5 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 shadow-2xs select-none no-print">
+            <ZoomIn className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-slate-500 font-semibold text-[11px]">Time Span:</span>
+            <input
+              type="range"
+              min="55"
+              max="240"
+              value={colWidth}
+              onChange={(e) => setColWidth(Number(e.target.value))}
+              className="w-20 accent-indigo-600 h-1 bg-slate-100 rounded-lg cursor-pointer"
+              title="Drag slider to zoom grid columns in/out"
+            />
+            <span className="font-mono text-[10px] text-indigo-600 w-8 text-right font-black">{colWidth}px</span>
+          </div>
+
           <div className="flex items-center gap-2 text-xs text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-lg font-medium shadow-2xs">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>Task Count: <strong className="text-slate-800">{filteredTasks.length}</strong> sorted</span>
@@ -553,32 +663,32 @@ export default function UnifiedTimeline({
       </div>
 
       {/* Synchronized Table Layout */}
-      <div id="scheduler-table-container" className="w-full overflow-x-auto">
+      <div id="scheduler-table-container" className="w-full max-h-[640px] overflow-auto border border-slate-200/40 rounded-xl relative">
         <table className="w-full border-collapse text-left min-w-[1100px]">
           <thead>
             <tr style={{ backgroundColor: '#1e293b', color: '#ffffff', borderBottom: '1px solid #334155' }}>
               {/* Left Side Static Headers with perfect width definitions */}
               <th 
-                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155' }}
-                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-12 min-w-[48px] max-w-[48px] sticky left-0 z-30"
+                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
+                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-12 min-w-[48px] max-w-[48px] sticky top-0 left-0 z-40"
               >
                 Item
               </th>
               <th 
-                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155' }}
-                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-16 min-w-[64px] max-w-[64px] sticky left-12 z-30"
+                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
+                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-16 min-w-[64px] max-w-[64px] sticky top-0 left-12 z-40"
               >
                 CODE
               </th>
               <th 
-                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155' }}
-                className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-32 min-w-[128px] max-w-[128px] sticky left-28 z-30"
+                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
+                className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-32 min-w-[128px] max-w-[128px] sticky top-0 left-28 z-40"
               >
                 Date
               </th>
               <th 
-                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155' }}
-                className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-[460px] min-w-[460px] sticky left-60 z-30"
+                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
+                className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-[460px] min-w-[460px] sticky top-0 left-60 z-40"
               >
                 Task Details (Direct inline editing)
               </th>
@@ -591,8 +701,16 @@ export default function UnifiedTimeline({
                 return (
                   <th 
                     key={dayDate} 
-                    style={{ backgroundColor: '#0f172a', color: '#ffffff', borderColor: '#334155' }}
-                    className="text-center text-[10px] font-extrabold uppercase border-r py-3 px-2 tracking-wide min-w-[140px] align-top"
+                    style={{ 
+                      backgroundColor: '#0f172a', 
+                      color: '#ffffff', 
+                      borderColor: '#334155',
+                      minWidth: `${colWidth}px`,
+                      maxWidth: `${colWidth}px`,
+                      width: `${colWidth}px`,
+                      top: 0
+                    }}
+                    className="text-center text-[10px] font-extrabold uppercase border-r py-3 px-2 tracking-wide align-top sticky top-0 z-30"
                   >
                     <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
                     <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
@@ -601,12 +719,20 @@ export default function UnifiedTimeline({
                     {showReadOnlyLayout ? (
                       <div className="mt-2 space-y-1 normal-case text-left font-sans select-all font-normal">
                         {dayName && (
-                          <div className="text-[10px] font-bold text-indigo-300 truncate max-w-[130px] text-center" title={dayName}>
+                          <div 
+                            style={{ maxWidth: `${colWidth - 8}px` }}
+                            className="text-[10px] font-bold text-indigo-300 truncate text-center mx-auto block" 
+                            title={dayName}
+                          >
                             ● {dayName}
                           </div>
                         )}
                         {dayNote && (
-                          <div className="text-[9px] text-slate-400 italic break-words leading-tight max-w-[130px] text-center" title={dayNote}>
+                          <div 
+                            style={{ maxWidth: `${colWidth - 8}px` }}
+                            className="text-[9px] text-slate-400 italic break-words leading-tight text-center mx-auto block" 
+                            title={dayNote}
+                          >
                             {dayNote}
                           </div>
                         )}
@@ -630,14 +756,15 @@ export default function UnifiedTimeline({
                                 });
                               }
                             }}
-                            className="w-full text-[9.5px] font-semibold bg-[#1e293b] border border-slate-700 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-white rounded px-1.5 py-1 text-center placeholder-slate-500 focus:outline-none transition-all"
+                            style={{ maxWidth: `${colWidth - 8}px` }}
+                            className="w-full text-[9.5px] font-semibold bg-[#1e293b] border border-slate-700 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-white rounded px-1.5 py-1 text-center placeholder-slate-500 focus:outline-none transition-all truncate mx-auto block"
                             title="Name this Day (e.g. Press Day, Show Start)"
                           />
                         </div>
                         <div className="relative">
-                          <input
-                            type="text"
+                          <textarea
                             placeholder="Potential notes"
+                            rows={2}
                             value={dayNote}
                             onChange={(e) => {
                               const updatedNotes = {
@@ -651,7 +778,8 @@ export default function UnifiedTimeline({
                                 });
                               }
                             }}
-                            className="w-full text-[9px] bg-[#1e293b]/70 border border-slate-750 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-slate-300 rounded px-1.5 py-0.5 text-center placeholder-slate-550 italic focus:outline-none transition-all font-medium"
+                            style={{ maxWidth: `${colWidth - 8}px`, resize: 'none' }}
+                            className="w-full text-[9px] bg-[#1e293b]/70 border border-slate-750 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-slate-300 rounded px-1.5 py-1 text-center placeholder-slate-550 italic focus:outline-none transition-all font-medium leading-tight mx-auto block"
                             title="Notes for today (e.g. Gates open at 17:00)"
                           />
                         </div>
@@ -812,6 +940,45 @@ export default function UnifiedTimeline({
                             />
                           )}
 
+                          {/* Indicators block */}
+                          <div className="flex items-center gap-1 flex-shrink-0 select-none">
+                            {task.startTime && (
+                              <span className="inline-flex items-center font-bold text-[9px] text-indigo-700 bg-indigo-50 px-1 rounded border border-indigo-100" title={`Start time: ${task.startTime}`}>
+                                ▶ {task.startTime}
+                              </span>
+                            )}
+                            {task.endTime && (
+                              <span className="inline-flex items-center font-bold text-[9px] text-indigo-700 bg-indigo-50 px-1 rounded border border-indigo-100" title={`End time: ${task.endTime}`}>
+                                ⏹ {task.endTime}
+                              </span>
+                            )}
+                            {task.dependencyTaskId && (
+                              <span 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const dep = getDependencyTask(task.dependencyTaskId);
+                                  if (dep) setViewingNotesTask(dep);
+                                }}
+                                className="inline-flex items-center font-bold text-[9px] text-slate-700 bg-slate-50 hover:bg-slate-100 px-1 rounded border border-slate-205 cursor-pointer"
+                                title={`Requires: ${getDependencyTask(task.dependencyTaskId)?.details || 'Prior Task'}`}
+                              >
+                                🔗 {getDependencyTask(task.dependencyTaskId)?.code || 'Req'}
+                              </span>
+                            )}
+                            {task.notes && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewingNotesTask(task);
+                                }}
+                                className="p-1 text-slate-450 hover:text-indigo-650 rounded cursor-pointer transition-colors"
+                                title="Click to read detailed notes"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                              </button>
+                            )}
+                          </div>
+
                           {/* Direct action buttons (Always visible to ensure 100% reliability) */}
                           {!showReadOnlyLayout && (
                             <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 rounded-lg px-1 py-0.5 flex-shrink-0 shadow-2xs no-print">
@@ -894,35 +1061,38 @@ export default function UnifiedTimeline({
                           const duration = task.durationDays || 1;
                           const colSpan = Math.min(duration, dateRange.length - dayIdx);
                           skipCount = colSpan - 1;
-                          
-                          cells.push(
+                                    cells.push(
                             <td 
                               key={`cell-${row.originalId}-${dayDate}`}
                               colSpan={colSpan}
                               onClick={() => {
-                                if (showReadOnlyLayout) return;
-                                onEditTask(task);
+                                setViewingNotesTask(task);
                               }}
                               style={{
                                 borderRight: '1px solid #e2e8f0',
                                 backgroundColor: '#f0f4ff', // lightly highlighted active track line
-                                padding: '6px'
+                                padding: '6px',
+                                minWidth: `${colWidth * colSpan}px`,
+                                maxWidth: `${colWidth * colSpan}px`,
+                                width: `${colWidth * colSpan}px`
                               }}
-                              className={`text-center align-middle transition-all relative ${
-                                showReadOnlyLayout ? 'cursor-default' : 'cursor-pointer'
-                              }`}
+                              className="text-center align-middle transition-all relative cursor-pointer"
                             >
                               <div
                                 style={{ backgroundColor: getDeptColor(task.code) }}
-                                className={`w-full min-h-[38px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1.5 transition-transform ${
-                                  showReadOnlyLayout ? 'cursor-default' : 'hover:scale-[1.01] active:scale-95 cursor-pointer'
-                                }`}
-                                title={`${task.code}: ${task.details} (${task.time || 'All Day'}) - Spans ${duration} day(s)${showReadOnlyLayout ? '' : ' - Click to edit'}`}
+                                className="w-full min-h-[38px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1.5 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
+                                title={`${task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
                               >
                                 <span className="text-[10px] tracking-widest uppercase font-black">{task.code}</span>
                                 <span className="text-[9px] opacity-90 mt-0.5 font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                                   {task.time || 'All Day'}
                                 </span>
+                                {(task.startTime || task.endTime) && (
+                                  <div className="flex gap-1.5 mt-0.5 opacity-95 text-[8px] font-black items-center bg-black/10 px-1 py-0.5 rounded-sm">
+                                    {task.startTime && <span title={`Start: ${task.startTime}`}>▶ {task.startTime}</span>}
+                                    {task.endTime && <span title={`End: ${task.endTime}`}>⏹ {task.endTime}</span>}
+                                  </div>
+                                )}
                               </div>
                             </td>
                           );
@@ -946,9 +1116,12 @@ export default function UnifiedTimeline({
                               }}
                               style={{
                                 borderRight: '1px solid #e2e8f0',
-                                backgroundColor: isHovered ? '#f8fafc' : '#ffffff'
+                                backgroundColor: isHovered ? '#f8fafc' : '#ffffff',
+                                minWidth: `${colWidth}px`,
+                                maxWidth: `${colWidth}px`,
+                                width: `${colWidth}px`
                               }}
-                              className={`p-2 text-center transition-all relative min-w-[120px] h-[48px] ${
+                              className={`p-2 text-center transition-all relative h-[48px] ${
                                 showReadOnlyLayout ? 'cursor-default' : 'cursor-cell group'
                               }`}
                             >
@@ -1135,6 +1308,76 @@ export default function UnifiedTimeline({
                   </div>
                 </div>
 
+                {/* ADVANCED FILTER & SPECS EXPORT OPTIONS */}
+                <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-xl flex flex-col gap-4.5">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                    Target Export Filters & Notes
+                  </span>
+
+                  {/* 1. Department Selector Dropdown */}
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="export-dept-select" className="text-sm font-bold text-slate-700">
+                      Export Department
+                    </label>
+                    <select
+                      id="export-dept-select"
+                      value={exportDeptFilter}
+                      onChange={(e) => setExportDeptFilter(e.target.value)}
+                      disabled={isExporting}
+                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
+                    >
+                      <option value="ALL">-- ALL DEPARTMENTS --</option>
+                      {departments.map((dept) => (
+                        <option key={dept.code} value={dept.code}>
+                          [{dept.code}] {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 2. Checkboxes for notes */}
+                  <div className="flex flex-col gap-3 pt-1">
+                    <div className="flex items-start gap-2.5">
+                      <input 
+                        type="checkbox" 
+                        id="opt-include-notes" 
+                        checked={includeNotesInExport}
+                        onChange={(e) => setIncludeNotesInExport(e.target.checked)}
+                        className="mt-0.5 accent-indigo-650 w-4 h-4 cursor-pointer"
+                        disabled={isExporting}
+                      />
+                      <div className="flex flex-col">
+                        <label htmlFor="opt-include-notes" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                          Print Operational Notes
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          Renders detailed instructions, blueprints and custom setup comments directly in the report document.
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2.5">
+                      <input 
+                        type="checkbox" 
+                        id="opt-only-notes" 
+                        checked={exportOnlyWithNotes}
+                        onChange={(e) => setExportOnlyWithNotes(e.target.checked)}
+                        className="mt-0.5 accent-indigo-650 w-4 h-4 cursor-pointer"
+                        disabled={isExporting}
+                      />
+                      <div className="flex flex-col">
+                        <label htmlFor="opt-only-notes" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                          Show Only Tasks with Notes
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          Filters the agenda checklist to solely include tasks that contain detailed workspace notes.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Grid Maps Specific Extra Options */}
                 {exportFormat !== 'agenda' && (
                   <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex items-start gap-3">
@@ -1190,6 +1433,178 @@ export default function UnifiedTimeline({
                     </>
                   )}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* VIEW DETAILED TASK NOTES & SPECS MODAL */}
+        {viewingNotesTask && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 no-print">
+            {/* Backdrop click close */}
+            <div className="absolute inset-0 cursor-default" onClick={() => setViewingNotesTask(null)} />
+            
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+              className="relative w-full max-w-lg bg-white border border-slate-250 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 text-left"
+            >
+              {/* Header Banner with Dept Color Accent */}
+              <div 
+                className="h-2 w-full" 
+                style={{ backgroundColor: getDeptColor(viewingNotesTask.code) }}
+              />
+              
+              <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full text-white inline-block mb-1.5" style={{ backgroundColor: getDeptColor(viewingNotesTask.code) }}>
+                    Department {viewingNotesTask.code}
+                  </span>
+                  <h3 className="text-sm font-black text-slate-850 uppercase tracking-tight flex items-center gap-1.5 leading-tight">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    Task Operations Specification
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingNotesTask(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-655 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[60vh]">
+                {/* Task Details Title Statement */}
+                <div className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
+                  <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider block mb-1">Details & Assignment</span>
+                  <p className="text-sm font-bold text-slate-850 leading-snug select-all">
+                    {viewingNotesTask.details}
+                  </p>
+                </div>
+
+                {/* Grid stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center gap-2.5 bg-slate-50/20 p-2.5 rounded-lg border border-slate-100">
+                    <Calendar className="w-4.5 h-4.5 text-slate-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">Target Date</span>
+                      <span className="text-xs font-bold text-slate-700 font-mono block">{viewingNotesTask.date}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 bg-slate-50/20 p-2.5 rounded-lg border border-slate-100">
+                    <Clock className="w-4.5 h-4.5 text-slate-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">Time block</span>
+                      <span className="text-xs font-bold text-slate-700 block">{viewingNotesTask.time || 'All Day'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Start / End Times */}
+                {(viewingNotesTask.startTime || viewingNotesTask.endTime) && (
+                  <div className="bg-indigo-50/20 border border-indigo-100/50 rounded-xl p-4">
+                    <span className="text-[9px] uppercase font-extrabold text-indigo-500 tracking-wider block mb-2">Duration Specific Limits</span>
+                    <div className="grid grid-cols-2 gap-4">
+                      {viewingNotesTask.startTime && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-150">▶ Start</span>
+                          <span className="text-xs font-black text-slate-700 font-mono">{viewingNotesTask.startTime}</span>
+                        </div>
+                      )}
+                      {viewingNotesTask.endTime && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-150">⏹ End</span>
+                          <span className="text-xs font-black text-slate-700 font-mono">{viewingNotesTask.endTime}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dependency Link */}
+                {viewingNotesTask.dependencyTaskId && (
+                  <div className="bg-amber-50/25 border border-amber-100 rounded-xl p-4 flex gap-3 items-start">
+                    <Layers className="w-4.5 h-4.5 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0 flex-grow">
+                      <span className="text-[9px] uppercase font-extrabold text-amber-600 tracking-wider block mb-1">Pre-requisite Priority Dependency</span>
+                      {(() => {
+                        const dep = getDependencyTask(viewingNotesTask.dependencyTaskId);
+                        if (dep) {
+                          return (
+                            <div>
+                              <span className="text-xs font-bold text-slate-800 block">[{dep.code}] {dep.details}</span>
+                              <span className="text-[10px] text-slate-500 font-semibold font-mono block mt-0.5 font-bold">Scheduled Date: {dep.date}</span>
+                            </div>
+                          );
+                        }
+                        return <span className="text-xs font-semibold text-slate-500 italic block">Depends on an archived or unavailable task</span>;
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtask Status */}
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Status Indicator</span>
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700 text-xs font-bold">
+                    <span className={`w-2 h-2 rounded-full ${
+                      viewingNotesTask.status === 'Completed' ? 'bg-emerald-500' :
+                      viewingNotesTask.status === 'In Progress' ? 'bg-indigo-500 animate-pulse' :
+                      viewingNotesTask.status === 'Deferred' ? 'bg-amber-500' : 'bg-slate-400'
+                    }`} />
+                    {viewingNotesTask.status || 'Not Started'}
+                  </div>
+                  {viewingNotesTask.durationDays && viewingNotesTask.durationDays > 1 && (
+                    <span className="text-xs text-slate-500 font-semibold">
+                      Spans <strong className="text-slate-800">{viewingNotesTask.durationDays}</strong> operational days
+                    </span>
+                  )}
+                </div>
+
+                {/* Notes Container Block */}
+                <div className="border-t border-slate-100 pt-3">
+                  <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider block mb-2">Detailed Notes & Setup Instructions</span>
+                  {viewingNotesTask.notes ? (
+                    <div className="bg-slate-50/80 border border-slate-200/60 rounded-xl p-4 font-medium text-xs text-slate-700 whitespace-pre-line leading-relaxed select-all shadow-2xs">
+                      {viewingNotesTask.notes}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50/40 rounded-xl p-5 border border-dashed border-slate-200 text-center text-xs text-slate-450 font-medium italic">
+                      No operational setup notes or instructions captured.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="px-6 py-4.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setViewingNotesTask(null)}
+                  className="px-4 py-2 border border-slate-205 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Close
+                </button>
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = viewingNotesTask;
+                      setViewingNotesTask(null);
+                      // bridge to form update edit modal
+                      onEditTask(t);
+                    }}
+                    className="px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm shadow-indigo-600/10 transition-transform active:scale-97"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    Modify Task Specs
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>

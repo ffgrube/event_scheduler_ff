@@ -26,12 +26,19 @@ import {
   Settings,
   Calendar,
   Sparkles,
-  RotateCcw
+  RotateCcw,
+  Folder,
+  FolderPlus,
+  Play,
+  ArrowRight,
+  Trash2,
+  Plus
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY_TASKS = 'master_scheduler_tasks_v2';
-const LOCAL_STORAGE_KEY_SETTINGS = 'master_scheduler_settings_v2';
-const LOCAL_STORAGE_KEY_DEPARTMENTS = 'master_scheduler_departments_v2';
+const LOCAL_STORAGE_KEY_TASKS = 'master_scheduler_tasks_v3';
+const LOCAL_STORAGE_KEY_SETTINGS = 'master_scheduler_settings_v3';
+const LOCAL_STORAGE_KEY_DEPARTMENTS = 'master_scheduler_departments_v3';
+const LOCAL_STORAGE_KEY_ACTIVE_PROJECT_ID = 'active_project_id_v3';
 
 const DEFAULT_SETTINGS: ProjectSettings = {
   projectName: 'Project Star 2026-07-06',
@@ -42,8 +49,18 @@ const DEFAULT_SETTINGS: ProjectSettings = {
 const INITIAL_TASKS: Task[] = [];
 
 export default function App() {
-  const isReadOnly = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('mode') === 'view' : false;
+  const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const isReadOnly = queryParams ? queryParams.get('mode') === 'view' : false;
+  const queryProjectId = queryParams ? queryParams.get('project') : null;
   
+  const [projects, setProjects] = useState<any[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(!isReadOnly);
+  
+  const [newProjName, setNewProjName] = useState<string>('');
+  const [newProjStart, setNewProjStart] = useState<string>('2026-07-06');
+  const [newProjEnd, setNewProjEnd] = useState<string>('2026-07-12');
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>(DEFAULT_DEPARTMENTS);
   const [settings, setSettings] = useState<ProjectSettings>(DEFAULT_SETTINGS);
@@ -53,9 +70,146 @@ export default function App() {
 
   const [changesToday, setChangesToday] = useState<any[]>([]);
 
-  const fetchChangesToday = async () => {
+  // Show transition notifications
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(null);
+    }, 3500);
+  };
+
+  const loadProjectsList = async () => {
     try {
-      const res = await fetch('/api/changes');
+      const res = await fetch('/api/projects');
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data);
+        
+        // Auto-select if stored active ID exists and is valid, or if query param exists
+        const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const queryProjectId = queryParams ? queryParams.get('project') : null;
+        const targetProjectId = (queryProjectId && data.some((p: any) => p.id === queryProjectId))
+          ? queryProjectId
+          : localStorage.getItem(LOCAL_STORAGE_KEY_ACTIVE_PROJECT_ID);
+
+        if (targetProjectId && data.some((p: any) => p.id === targetProjectId)) {
+          if (!activeProjectId) {
+            handleSelectProject(targetProjectId);
+          }
+        } else if (data.length > 0 && !activeProjectId) {
+          // Fallback to choose first
+          setActiveProjectId(data[0].id);
+          if (isReadOnly) {
+            handleSelectProject(data[0].id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch projects metadata from backend', e);
+    }
+  };
+
+  const handleSelectProject = async (id: string) => {
+    try {
+      const res = await fetch(`/api/projects/${id}`);
+      if (res.ok) {
+        const p = await res.json();
+        setActiveProjectId(id);
+        localStorage.setItem(LOCAL_STORAGE_KEY_ACTIVE_PROJECT_ID, id);
+        
+        setSettings(p.settings);
+        setDepartments(p.departments);
+        setTasks(p.tasks);
+        setIsProjectMenuOpen(false);
+        showToast(`Loaded live project: "${p.name}"`, 'success');
+        
+        // Load changes
+        fetchChangesToday(id);
+      } else {
+        showToast('Error retrieving project details', 'info');
+      }
+    } catch (e) {
+      showToast('Offline fallback: could not reach database server', 'info');
+    }
+  };
+
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjName.trim()) {
+      showToast('Project name cannot be blank!', 'info');
+      return;
+    }
+
+    const id = newProjName.toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || `project-${Date.now()}`;
+
+    // check collision
+    if (projects.some(p => p.id === id)) {
+      showToast('A project with a similar slug/name already exists.', 'info');
+      return;
+    }
+
+    const payload = {
+      id,
+      name: newProjName.trim(),
+      settings: {
+        projectName: newProjName.trim(),
+        startDate: newProjStart,
+        endDate: newProjEnd,
+        dayNames: {},
+        dayNotes: {}
+      },
+      departments: DEFAULT_DEPARTMENTS,
+      tasks: [],
+      changesToday: []
+    };
+
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setNewProjName('');
+        showToast(`Project "${payload.name}" initialized!`, 'success');
+        await loadProjectsList();
+        await handleSelectProject(id);
+      }
+    } catch (e) {
+      showToast('Failed to create new project on database.', 'info');
+    }
+  };
+
+  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Are you sure you want to permanently delete this project? All associated event lanes will be destroyed.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast('Project wiped from database', 'info');
+        await loadProjectsList();
+        if (activeProjectId === id) {
+          setActiveProjectId('');
+          setIsProjectMenuOpen(true);
+        }
+      }
+    } catch (e) {
+      showToast('Error removing project', 'info');
+    }
+  };
+
+  const fetchChangesToday = async (pId = activeProjectId) => {
+    const targetId = pId || activeProjectId;
+    if (!targetId) return;
+    try {
+      const res = await fetch(`/api/changes?projectId=${targetId}`);
       if (res.ok) {
         const data = await res.json();
         setChangesToday(data);
@@ -65,70 +219,10 @@ export default function App() {
     }
   };
 
-  // Sync data dynamically from the backend server first, with localStorage as safe offline fallback
+  // Sync projects and active on start
   useEffect(() => {
-    const initData = async () => {
-      // 1. Fetch tasks list from Express database server
-      try {
-        const res = await fetch('/api/tasks');
-        if (res.ok) {
-          const data = await res.json();
-          setTasks(data);
-          localStorage.setItem(LOCAL_STORAGE_KEY_TASKS, JSON.stringify(data));
-        } else {
-          loadTasksFromLocal();
-        }
-      } catch (e) {
-        console.warn('Backend server unreached. Continuing in sandbox localStorage mode.', e);
-        loadTasksFromLocal();
-      }
-
-      // 2. Load settings and departments from local preferences
-      const storedSettings = localStorage.getItem(LOCAL_STORAGE_KEY_SETTINGS);
-      if (storedSettings) {
-        try {
-          setSettings(JSON.parse(storedSettings));
-        } catch (e) {
-          setSettings(DEFAULT_SETTINGS);
-        }
-      }
-
-      const storedDepts = localStorage.getItem(LOCAL_STORAGE_KEY_DEPARTMENTS);
-      if (storedDepts) {
-        try {
-          setDepartments(JSON.parse(storedDepts));
-        } catch (e) {
-          setDepartments(DEFAULT_DEPARTMENTS);
-        }
-      }
-
-      // 3. Load daily change log history from backend
-      fetchChangesToday();
-    };
-
-    const loadTasksFromLocal = () => {
-      const storedTasks = localStorage.getItem(LOCAL_STORAGE_KEY_TASKS);
-      if (storedTasks) {
-        try {
-          setTasks(JSON.parse(storedTasks));
-        } catch (e) {
-          setTasks(INITIAL_TASKS);
-        }
-      } else {
-        setTasks(INITIAL_TASKS);
-      }
-    };
-
-    initData();
+    loadProjectsList();
   }, []);
-
-  // Show transition notifications
-  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
-    setNotification({ message, type });
-    setTimeout(() => {
-      setNotification(null);
-    }, 3500);
-  };
 
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -138,15 +232,17 @@ export default function App() {
     setTasks(sorted);
     localStorage.setItem(LOCAL_STORAGE_KEY_TASKS, JSON.stringify(sorted));
 
+    if (!activeProjectId) return;
+
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetch(`/api/tasks?projectId=${activeProjectId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sorted),
       });
       if (res.ok) {
         // Automatically sync the modified change list feed in UI
-        fetchChangesToday();
+        fetchChangesToday(activeProjectId);
       }
     } catch (e) {
       console.warn('Failed to commit tasks to persistent server', e);
@@ -154,23 +250,63 @@ export default function App() {
   };
 
   // Safe settings saver
-  const saveSettings = (newSettings: ProjectSettings) => {
+  const saveSettings = async (newSettings: ProjectSettings) => {
     setSettings(newSettings);
     localStorage.setItem(LOCAL_STORAGE_KEY_SETTINGS, JSON.stringify(newSettings));
-    showToast('Project configuration settings updated successfully', 'success');
+    
+    if (activeProjectId) {
+      try {
+        const res = await fetch(`/api/projects/${activeProjectId}`);
+        if (res.ok) {
+          const p = await res.json();
+          p.settings = newSettings;
+          p.name = newSettings.projectName;
+          
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(p)
+          });
+          showToast('Project configuration settings updated', 'success');
+          loadProjectsList();
+        }
+      } catch (e) {
+        console.warn('Failed to save project settings to server', e);
+      }
+    }
   };
 
   // Safe departments (tags) updated
-  const handleUpdateDepartments = (updatedDepts: Department[]) => {
+  const handleUpdateDepartments = async (updatedDepts: Department[]) => {
     setDepartments(updatedDepts);
     localStorage.setItem(LOCAL_STORAGE_KEY_DEPARTMENTS, JSON.stringify(updatedDepts));
+
+    if (activeProjectId) {
+      try {
+        const res = await fetch(`/api/projects/${activeProjectId}`);
+        if (res.ok) {
+          const p = await res.json();
+          p.departments = updatedDepts;
+          
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(p)
+          });
+          loadProjectsList();
+        }
+      } catch (e) {
+        console.warn('Failed to sync departments to server', e);
+      }
+    }
   };
 
   // Handles daily logs wipe
   const handleClearChangesHistory = async () => {
+    if (!activeProjectId) return;
     try {
-      await fetch('/api/changes/reset', { method: 'POST' });
-      fetchChangesToday();
+      await fetch(`/api/changes/reset?projectId=${activeProjectId}`, { method: 'POST' });
+      fetchChangesToday(activeProjectId);
       showToast('Recorded modifications cleared for today.', 'success');
     } catch {
       showToast('Wipe command aborted.', 'info');
@@ -336,19 +472,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/50 text-slate-800 antialiased font-sans flex flex-col pb-16">
+    <div className="min-h-screen bg-slate-150/40 text-slate-800 antialiased font-sans flex flex-col pb-16">
       
       {/* Read-Only mode banner */}
       {isReadOnly && (
         <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 text-white font-extrabold text-[11px] uppercase tracking-widest text-center py-2 px-6 shadow-xs flex items-center justify-center gap-2 select-none">
           <span className="flex items-center gap-1.5 animate-pulse">
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            Staging Operations Live Monitor Active
+            Staging Operations Live Monitor Active (Read-Only Mode)
           </span>
-          <span className="text-indigo-200 font-medium">•</span>
-          <a href="?" className="underline hover:text-indigo-100 font-bold tracking-normal transition-colors">
-            Switch back to Scheduling Editor
-          </a>
         </div>
       )}
 
@@ -367,191 +499,424 @@ export default function App() {
         </div>
       )}
 
-
-
-      {/* Controller Toolbar & Workspace Containers */}
-      <main className="max-w-[1700px] mx-auto px-4 md:px-6 mt-6 w-full flex-grow flex flex-col gap-6">
-        
-        {/* Row 1: Configurations & Filters */}
-        {isReadOnly ? (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-            {/* Staging Monitor Info Card */}
-            <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-center min-h-[142px]">
-              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                {settings.projectName}
-                <span className="text-[9px] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-indigo-700 font-extrabold uppercase tracking-widest leading-none">
-                  Live View-Only Feed
-                </span>
-              </h2>
-              <p className="text-xs text-slate-505 font-medium mt-1.5 max-w-xl">
-                Active Staging & Equipment Rigging grid. Tracking from {settings.startDate} through {settings.endDate}. Clicking, dragging, and edits have been disabled for security.
-              </p>
-              <div className="flex items-center gap-2 mt-4 text-[11px] font-bold text-slate-400">
-                <Calendar className="w-4 h-4 text-indigo-500" />
-                <span>Production Horizon Span: {settings.startDate} ➜ {settings.endDate}</span>
-              </div>
-            </div>
-
-            {/* Read-Only Filters Column */}
-            <div className="lg:col-span-1">
-              <DepartmentFilter
-                departments={departments}
-                onUpdateDepartments={handleUpdateDepartments}
-                selectedDeptFilter={selectedDeptFilter}
-                onSelectDeptFilter={setSelectedDeptFilter}
-                tasks={tasks}
-                onUpdateTask={handleUpdateTask}
-                isReadOnly={true}
-              />
-            </div>
+      {/* Top Header Navigation Strip */}
+      <header className="bg-slate-900 text-slate-100 py-4 px-6 border-b border-slate-800 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Layers className="w-6 h-6 text-indigo-400 animate-spin-slow" />
+          <div>
+            <h1 className="text-sm font-black tracking-widest uppercase text-white flex items-center gap-2">
+              FF - TIMELINE PLAYGROUND
+              <span className="text-[9px] font-extrabold bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                v2.1
+              </span>
+            </h1>
+            <p className="text-[11px] text-slate-400 font-medium leading-none">
+              Rigging, Staging & Event Schedule Matrix Architect
+            </p>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          {activeProjectId && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-850 border border-slate-800 rounded-lg text-xs font-medium text-slate-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>Active Workspace:</span>
+              <strong className="text-white">{settings.projectName}</strong>
+            </div>
+          )}
+
+          {!isReadOnly && (
+            <button
+              onClick={() => setIsProjectMenuOpen(!isProjectMenuOpen)}
+              className={`flex items-center gap-2 text-xs font-extrabold px-3.5 py-2 rounded-lg border transition-all ${
+                isProjectMenuOpen 
+                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500/50 shadow-sm shadow-indigo-600/10' 
+                  : 'bg-slate-800 hover:bg-slate-755 text-slate-100 border-slate-700'
+              }`}
+            >
+              <Folder className="w-4 h-4 text-indigo-300" />
+              {isProjectMenuOpen ? 'View Staging Matrix' : '📂 Switch Project Menu'}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {isProjectMenuOpen ? (
+        /* ==================== MAIN PROJECTS SELECTION MENU ==================== */
+        <main className="max-w-[1300px] mx-auto px-4 md:px-6 py-12 w-full flex-grow flex flex-col gap-10">
+          
+          <div className="text-center space-y-2">
+            <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight font-sans">
+              MAIN WORKSPACE DIRECTORY
+            </h2>
+            <p className="text-sm text-slate-550 max-w-xl mx-auto font-medium leading-relaxed">
+              Initialize, configure, or load custom multidevice time-slot production schedules. Each project acts as a completely isolated staging database.
+            </p>
+            <div className="w-16 h-1 bg-indigo-600 mx-auto rounded-full mt-4"></div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             
-            {/* Setup Menu Card Column */}
-            <div className="xl:col-span-2 shadow-xs">
-              <SetupMenu 
-                settings={settings} 
-                onUpdateSettings={saveSettings} 
-                onResetToDefault={handleResetToDefault}
-                onCopyShareLink={() => {
-                  const url = `${window.location.origin}${window.location.pathname}?mode=view`;
-                  navigator.clipboard.writeText(url);
-                  showToast('🔗 Shareable View-Only link copied to clipboard!', 'success');
-                }}
-              />
-            </div>
+            {/* Column 1 & 2: Project Cards Directory */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex items-center justify-between font-black text-xs uppercase text-slate-400 tracking-widest pb-2 border-b border-slate-200">
+                <span>Production Project Directory ({projects.length})</span>
+                <span>Select to open</span>
+              </div>
 
-            {/* Department Selection Filter Menu Card Column */}
-            <div className="xl:col-span-1 shadow-xs">
-              <DepartmentFilter
-                departments={departments}
-                onUpdateDepartments={handleUpdateDepartments}
-                selectedDeptFilter={selectedDeptFilter}
-                onSelectDeptFilter={setSelectedDeptFilter}
-                tasks={tasks}
-                onUpdateTask={handleUpdateTask}
-              />
-            </div>
-
-            {/* Operations Daily Logger Controller */}
-            <div className="xl:col-span-1 shadow-xs">
-              <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between min-h-[162px] h-full">
-                <div>
-                  <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                      Operational Logger
-                    </span>
-                    <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-150 text-indigo-700 uppercase">
-                      Active Buffer
-                    </span>
+              {projects.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center space-y-4 shadow-xs">
+                  <Folder className="w-12 h-12 text-indigo-400 mx-auto animate-pulse" />
+                  <div>
+                    <h4 className="text-base font-black text-slate-900 uppercase">Registry Empty</h4>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto font-medium">
+                      Configure your first event workspace parameters on the right to start scheduling devices, lines and operations.
+                    </p>
                   </div>
-
-                  <div className="space-y-2 mt-2">
-                    <div className="flex justify-between items-center bg-slate-50 border border-slate-100 p-2 rounded-lg">
-                      <span className="text-[11px] text-slate-500 font-bold">Logged Changes Today:</span>
-                      <span className="text-[11px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-750 rounded-full">
-                        {changesToday.length}
-                      </span>
-                    </div>
-
-                    {changesToday.length > 0 ? (
-                      <div className="max-h-[105px] overflow-y-auto pr-1 space-y-1.5 text-[9.5px]">
-                        {changesToday.slice(-4).map((c, i) => (
-                          <div key={i} className="border-l-2 pl-1.5 py-0.5" style={{ borderColor: c.type === 'Add' ? '#10b981' : c.type === 'Update' ? '#f59e0b' : '#ef4444' }}>
-                            <span className="font-extrabold text-slate-700">[{c.type}]</span> <span className="text-slate-500">{c.description}</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {projects.map((proj) => {
+                    const isActive = proj.id === activeProjectId;
+                    return (
+                      <div
+                        key={proj.id}
+                        onClick={() => handleSelectProject(proj.id)}
+                        className={`group relative bg-white border rounded-xl p-5 shadow-xs transition-all hover:shadow-md hover:border-indigo-500 cursor-pointer flex flex-col justify-between min-h-[170px] ${
+                          isActive ? 'ring-2 ring-indigo-600 border-transparent bg-indigo-50/5' : 'border-slate-200/90'
+                        }`}
+                      >
+                        <div>
+                          {/* Active Pill Badge */}
+                          <div className="flex items-center justify-between gap-2 mb-2.5">
+                            <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 border border-indigo-150 px-2 py-0.5 rounded">
+                              ID: {proj.id}
+                            </span>
+                            {isActive && (
+                              <span className="text-[9px] font-extrabold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-250 rounded-full flex items-center gap-1 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                Loaded Focus
+                              </span>
+                            )}
                           </div>
-                        ))}
-                        {changesToday.length > 4 && (
-                          <div className="text-[8.5px] text-slate-400 font-bold tracking-tight text-right pr-1">
-                            + {changesToday.length - 4} more logs history
+
+                          <h3 className="font-extrabold text-slate-900 group-hover:text-indigo-600 transition-colors text-base leading-tight">
+                            {proj.name}
+                          </h3>
+
+                          <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400 mt-2">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{proj.settings?.startDate} ➜ {proj.settings?.endDate}</span>
                           </div>
-                        )}
+                        </div>
+
+                        <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-500/90">
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1">
+                              <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                              <strong className="text-slate-800">{proj.tasksCount || 0}</strong> tasks
+                            </span>
+                            <span className="text-slate-200 font-normal">•</span>
+                            <span className="text-[10.5px]">
+                              <strong className="text-slate-800">{proj.departmentsCount || 0}</strong> tags
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => handleDeleteProject(proj.id, e)}
+                              className="p-1 px-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50/40 rounded transition-all cursor-pointer"
+                              title="Permenently wipe project database"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-slate-300 font-normal">|</span>
+                            <span className="text-indigo-600 group-hover:translate-x-1 transition-transform flex items-center gap-0.5">
+                              Open Board
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
-                        No modifications written to logs yet. Add, edit or delete tasks to record actions.
-                      </p>
-                    )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Column 3: Project Builder Form */}
+            <div className="lg:col-span-1 space-y-4">
+              <div className="flex items-center justify-between font-black text-xs uppercase text-slate-400 tracking-widest pb-2 border-b border-slate-200">
+                <span>Project Workspace Initiator</span>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                    <FolderPlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm tracking-tight uppercase">
+                      New Event Blueprint
+                    </h3>
+                    <p className="text-xs text-slate-400 font-semibold leading-tight">
+                      Provision isolated calendar staging data
+                    </p>
                   </div>
                 </div>
 
-                {changesToday.length > 0 && (
-                  <div className="mt-3 pt-2.5 border-t border-slate-100">
-                    <button
-                      onClick={handleClearChangesHistory}
-                      className="w-full text-[10.5px] font-extrabold py-2 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-550 hover:text-rose-600 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      Wipe Recorded Logs
-                    </button>
+                <form onSubmit={handleCreateProject} className="space-y-4 mt-6">
+                  <div className="space-y-1.5">
+                    <label htmlFor="modalProjectName" className="block text-xs font-semibold text-slate-700">
+                      Project Name / Show Identifier
+                    </label>
+                    <input
+                      id="modalProjectName"
+                      type="text"
+                      required
+                      value={newProjName}
+                      onChange={(e) => setNewProjName(e.target.value)}
+                      placeholder="e.g., Basel Laser Rigging 2026"
+                      className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50"
+                    />
                   </div>
-                )}
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="modalStartDate" className="block text-xs font-semibold text-slate-700">
+                      Show Start Date (Day 1)
+                    </label>
+                    <input
+                      id="modalStartDate"
+                      type="date"
+                      required
+                      value={newProjStart}
+                      onChange={(e) => setNewProjStart(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="modalEndDate" className="block text-xs font-semibold text-slate-700">
+                      Show End Date (Max 30 days)
+                    </label>
+                    <input
+                      id="modalEndDate"
+                      type="date"
+                      required
+                      value={newProjEnd}
+                      onChange={(e) => setNewProjEnd(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full mt-2 text-xs font-extrabold py-3 rounded-lg bg-slate-900 text-white border border-slate-950 hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-slate-900/10"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create & Boot Workspace
+                  </button>
+                </form>
+
+                <div className="text-[10px] text-slate-400 mt-6 leading-relaxed bg-slate-50 border border-slate-100 p-3 rounded-lg font-medium flex items-start gap-2">
+                  <Play className="w-3.5 h-3.5 text-indigo-505 rotate-90 flex-shrink-0 mt-0.5" />
+                  <span>
+                    New workspaces automatically boot with essential default channels (ARC, MISC) and support adding custom departments, bulk importing, and changes history tracker.
+                  </span>
+                </div>
               </div>
             </div>
+
           </div>
-        )}
 
-        {/* Row 2: Left Input Form & Main Interactive Spreadsheet Timeline */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+        </main>
+      ) : (
+        /* ==================== ACTIVE SPREADSHEET RIGGING MATRIX WORKSPACE ==================== */
+        <main className="max-w-[1700px] mx-auto px-4 md:px-6 mt-6 w-full flex-grow flex flex-col gap-6">
           
-          {/* Form Task Addition - Side Box */}
-          {!isReadOnly && (
-            <div className="xl:col-span-1 space-y-4">
-              <TaskForm 
-                departments={departments}
-                onSubmit={handleFormSubmit}
-                editingTask={editingTask}
-                onCancelEdit={() => setEditingTask(null)}
-                defaultDate={settings.startDate}
-              />
-
-              <BulkImport 
-                departments={departments}
-                onBulkImport={handleBulkImport}
-                showToast={showToast}
-                defaultDate={settings.startDate}
-              />
-
-              {/* Documentation Helper */}
-              <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3 border border-indigo-950">
-                <h4 className="text-xs font-extrabold tracking-widest text-indigo-300 flex items-center gap-1.5 uppercase">
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  Time-Slot Spreadsheet Help
-                </h4>
-                <p className="text-[11px] leading-relaxed text-indigo-150 font-medium font-sans">
-                  Our responsive staging grid replicates professional live event workflow charts. Tasks are structured sequentially by date and time automatically upon entry.
+          {/* Row 1: Configurations & Filters */}
+          {isReadOnly ? (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+              {/* Staging Monitor Info Card */}
+              <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-center min-h-[142px]">
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  {settings.projectName}
+                  <span className="text-[9px] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-indigo-700 font-extrabold uppercase tracking-widest leading-none">
+                    Live View-Only Feed
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-505 font-medium mt-1.5 max-w-xl">
+                  Active Staging & Equipment Rigging grid. Tracking from {settings.startDate} through {settings.endDate}. Clicking, dragging, and edits have been disabled for security.
                 </p>
-                <ul className="text-[11px] space-y-1.5 text-indigo-200 list-disc list-inside col-span-1">
-                  <li>Create prep rows with June/prior dates.</li>
-                  <li>Enter active show dates inside the July span.</li>
-                  <li>Leave time blank to span ALL DAY slots on the grid.</li>
-                  <li>Click any empty grid square to quickly scheduler a task draft.</li>
-                </ul>
+                <div className="flex items-center gap-2 mt-4 text-[11px] font-bold text-slate-400">
+                  <Calendar className="w-4 h-4 text-indigo-500" />
+                  <span>Production Horizon Span: {settings.startDate} ➜ {settings.endDate}</span>
+                </div>
+              </div>
+
+              {/* Read-Only Filters Column */}
+              <div className="lg:col-span-1">
+                <DepartmentFilter
+                  departments={departments}
+                  onUpdateDepartments={handleUpdateDepartments}
+                  selectedDeptFilter={selectedDeptFilter}
+                  onSelectDeptFilter={setSelectedDeptFilter}
+                  tasks={tasks}
+                  onUpdateTask={handleUpdateTask}
+                  isReadOnly={true}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+              
+              {/* Setup Menu Card Column */}
+              <div className="xl:col-span-2 shadow-xs">
+                <SetupMenu 
+                  settings={settings} 
+                  onUpdateSettings={saveSettings} 
+                  onResetToDefault={handleResetToDefault}
+                  activeProjectId={activeProjectId}
+                  onCopyShareLink={() => {
+                    const url = `${window.location.origin}${window.location.pathname}?project=${activeProjectId}&mode=view`;
+                    navigator.clipboard.writeText(url);
+                    showToast('🔗 Shareable View-Only link copied to clipboard!', 'success');
+                  }}
+                />
+              </div>
+
+              {/* Department Selection Filter Menu Card Column */}
+              <div className="xl:col-span-1 shadow-xs">
+                <DepartmentFilter
+                  departments={departments}
+                  onUpdateDepartments={handleUpdateDepartments}
+                  selectedDeptFilter={selectedDeptFilter}
+                  onSelectDeptFilter={setSelectedDeptFilter}
+                  tasks={tasks}
+                  onUpdateTask={handleUpdateTask}
+                />
+              </div>
+
+              {/* Operations Daily Logger Controller */}
+              <div className="xl:col-span-1 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between min-h-[162px] h-full">
+                  <div>
+                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                        Operational Logger
+                      </span>
+                      <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-150 text-indigo-700 uppercase">
+                        Active Buffer
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 mt-2">
+                      <div className="flex justify-between items-center bg-slate-50 border border-slate-100 p-2 rounded-lg">
+                        <span className="text-[11px] text-slate-500 font-bold">Logged Changes Today:</span>
+                        <span className="text-[11px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-750 rounded-full">
+                          {changesToday.length}
+                        </span>
+                      </div>
+
+                      {changesToday.length > 0 ? (
+                        <div className="max-h-[105px] overflow-y-auto pr-1 space-y-1.5 text-[9.5px]">
+                          {changesToday.slice(-4).map((c, i) => (
+                            <div key={i} className="border-l-2 pl-1.5 py-0.5" style={{ borderColor: c.type === 'Add' ? '#10b981' : c.type === 'Update' ? '#f59e0b' : '#ef4444' }}>
+                              <span className="font-extrabold text-slate-700">[{c.type}]</span> <span className="text-slate-500">{c.description}</span>
+                            </div>
+                          ))}
+                          {changesToday.length > 4 && (
+                            <div className="text-[8.5px] text-slate-400 font-bold tracking-tight text-right pr-1">
+                              + {changesToday.length - 4} more logs history
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                          No modifications written to logs yet. Add, edit or delete tasks to record actions.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {changesToday.length > 0 && (
+                    <div className="mt-3 pt-2.5 border-t border-slate-100">
+                      <button
+                        onClick={handleClearChangesHistory}
+                        className="w-full text-[10.5px] font-extrabold py-2 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-550 hover:text-rose-600 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        Wipe Recorded Logs
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
 
-          {/* Master Unified Spreadsheet View - Main View */}
-          <div className={isReadOnly ? "xl:col-span-4" : "xl:col-span-3"}>
-            <UnifiedTimeline 
-              tasks={tasks}
-              settings={settings}
-              departments={departments}
-              onEditTask={setEditingTask}
-              onDeleteTask={handleDeleteTask}
-              onUpdateTask={handleUpdateTask}
-              onQuickAddAtSlot={handleQuickAddAtSlot}
-              selectedDeptFilter={selectedDeptFilter}
-              showToast={showToast}
-              isReadOnly={isReadOnly}
-              onUpdateSettings={saveSettings}
-            />
+          {/* Row 2: Left Input Form & Main Interactive Spreadsheet Timeline */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+            
+            {/* Form Task Addition - Side Box */}
+            {!isReadOnly && (
+              <div className="xl:col-span-1 space-y-4">
+                <TaskForm 
+                  departments={departments}
+                  onSubmit={handleFormSubmit}
+                  editingTask={editingTask}
+                  onCancelEdit={() => setEditingTask(null)}
+                  defaultDate={settings.startDate}
+                  allTasks={tasks}
+                />
+
+                <BulkImport 
+                  departments={departments}
+                  onBulkImport={handleBulkImport}
+                  showToast={showToast}
+                  defaultDate={settings.startDate}
+                />
+
+                {/* Documentation Helper */}
+                <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3 border border-indigo-950">
+                  <h4 className="text-xs font-extrabold tracking-widest text-indigo-300 flex items-center gap-1.5 uppercase">
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    Time-Slot Spreadsheet Help
+                  </h4>
+                  <p className="text-[11px] leading-relaxed text-indigo-150 font-medium font-sans">
+                    Our responsive staging grid replicates professional live event workflow charts. Tasks are structured sequentially by date and time automatically upon entry.
+                  </p>
+                  <ul className="text-[11px] space-y-1.5 text-indigo-200 list-disc list-inside col-span-1">
+                    <li>Create prep rows with June/prior dates.</li>
+                    <li>Enter active show dates inside the July span.</li>
+                    <li>Leave time blank to span ALL DAY slots on the grid.</li>
+                    <li>Click any empty grid square to quickly scheduler a task draft.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Master Unified Spreadsheet View - Main View */}
+            <div className={isReadOnly ? "xl:col-span-4" : "xl:col-span-3"}>
+              <UnifiedTimeline 
+                tasks={tasks}
+                settings={settings}
+                departments={departments}
+                onEditTask={setEditingTask}
+                onDeleteTask={handleDeleteTask}
+                onUpdateTask={handleUpdateTask}
+                onQuickAddAtSlot={handleQuickAddAtSlot}
+                selectedDeptFilter={selectedDeptFilter}
+                showToast={showToast}
+                isReadOnly={isReadOnly}
+                onUpdateSettings={saveSettings}
+              />
+            </div>
+
           </div>
 
-        </div>
-
-      </main>
+        </main>
+      )}
 
       {/* Floating high-fidelity task editing modal window */}
       <TaskEditModal
@@ -561,6 +926,7 @@ export default function App() {
         task={editingTask}
         onSubmit={handleFormSubmit}
         onDelete={handleDeleteTask}
+        allTasks={tasks}
       />
 
     </div>
