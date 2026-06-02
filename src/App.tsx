@@ -12,6 +12,7 @@ import {
 } from './utils';
 import SetupMenu from './components/SetupMenu';
 import TaskForm from './components/TaskForm';
+import BulkImport from './components/BulkImport';
 import UnifiedTimeline from './components/UnifiedTimeline';
 import DepartmentFilter from './components/DepartmentFilter';
 import TaskEditModal from './components/TaskEditModal';
@@ -301,6 +302,11 @@ export default function App() {
     }
   };
 
+  // Handle Gemini bulk load import lists
+  const handleBulkImport = (importedTasks: Task[]) => {
+    saveTasks([...tasks, ...importedTasks], true);
+  };
+
   const handleDeleteTask = (id: string) => {
     const filtered = tasks.filter(t => t.id !== id);
     saveTasks(filtered, true);
@@ -524,6 +530,13 @@ export default function App() {
                 onSubmit={handleFormSubmit}
                 editingTask={editingTask}
                 onCancelEdit={() => setEditingTask(null)}
+                defaultDate={settings.startDate}
+              />
+
+              <BulkImport 
+                departments={departments}
+                onBulkImport={handleBulkImport}
+                showToast={showToast}
                 defaultDate={settings.startDate}
               />
 

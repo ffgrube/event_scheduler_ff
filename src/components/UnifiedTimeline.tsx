@@ -270,10 +270,10 @@ export default function UnifiedTimeline({
     };
     showToast(`Preparing ${sizeLabels[format]} grid layout...`, 'info');
 
-    // Back up the original window.getComputedStyle style reader
+    // 1. Back up the original window.getComputedStyle style reader
     const originalGetComputedStyle = window.getComputedStyle;
 
-    // Define temporary interceptor proxy to shield html2canvas from non-standard oklab / oklch CSS color declarations
+    // 2. Intercept styles right before html2canvas runs to neutralize oklab / oklch functions
     window.getComputedStyle = function(el, pseudoElt) {
       const style = originalGetComputedStyle(el, pseudoElt);
       return new Proxy(style, {
@@ -283,108 +283,110 @@ export default function UnifiedTimeline({
             return (value as any).bind(target);
           }
           if (typeof value === 'string' && (value.includes('oklab') || value.includes('oklch'))) {
-            return 'rgb(248, 250, 252)'; // Immediately substitute safe light fallback shade
+            return 'rgb(248, 250, 252)'; // Fallback immediately to a safe plain light gray/slate color
           }
           return value;
         }
       });
     };
 
-    try {
-      // 1. Target table container and store original state
-      const tableContainer = document.getElementById('scheduler-table-container');
-      const originalTableOverflow = tableContainer ? tableContainer.style.overflowX : '';
-      const originalTableWidth = tableContainer ? tableContainer.style.width : '';
-      const originalContainerMaxWidth = container.style.maxWidth;
-      const originalContainerWidth = container.style.width;
+    let clonedElement: HTMLElement | null = null;
 
-      // Add contrast grid or print classes
+    try {
+      // Temporarily mark real container elements as printing to apply necessary override classes
       if (highContrastGrid) {
         container.classList.add('high-contrast-grid');
       }
       container.classList.add('is-printing-pdf');
 
-      // 2. Expand styles temporarily so html2canvas renders the full table without clipping
-      if (tableContainer) {
-        tableContainer.style.overflowX = 'visible';
-        tableContainer.style.width = 'auto';
-        
-        // Measure the full unclipped content scroll width
-        const fullContentWidth = tableContainer.scrollWidth;
-        container.style.width = `${fullContentWidth + 40}px`; // Include padding clearance
-      }
-      container.style.maxWidth = 'none';
-
-      // Brief delay for the browser redraw tree to calculate layout sizes
+      // Brief delay for React to finish rendering inputs/selects in read-only form
       await new Promise((resolve) => setTimeout(resolve, 380));
 
-      const canvasScale = format === 'grid-a0' ? 2 : format === 'grid-a3' ? 1.5 : 1.1;
+      // 2. Temporary DOM Clone For Infinite Width Snapshotting
+      clonedElement = container.cloneNode(true) as HTMLElement;
+      clonedElement.id = 'unified-timeline-panel-pdf-clone';
 
-      const canvas = await html2canvas(container, {
-        scale: canvasScale, 
+      // Ensure the clone is visible for layout engine calculations but pushed entirely offscreen
+      clonedElement.style.position = 'absolute';
+      clonedElement.style.left = '-99999px';
+      clonedElement.style.top = '-99999px';
+      clonedElement.style.visibility = 'visible';
+      clonedElement.style.maxWidth = 'none';
+      clonedElement.style.height = 'auto';
+
+      // Remove browser width caps and scrolling zones on clone
+      const clonedTableContainer = clonedElement.querySelector('#scheduler-table-container') as HTMLElement;
+      if (clonedTableContainer) {
+        clonedTableContainer.style.overflowX = 'visible';
+        clonedTableContainer.style.overflow = 'visible';
+        clonedTableContainer.style.width = 'auto';
+        clonedTableContainer.style.maxWidth = 'none';
+      }
+
+      // Append clone to DOM to read and inflate dimensions
+      document.body.appendChild(clonedElement);
+
+      const realTableContainer = document.getElementById('scheduler-table-container');
+      const measuredScrollWidth = realTableContainer ? realTableContainer.scrollWidth : 2400;
+
+      // Force clone wrapper width to hold the total table scrollable size plus margin buffer
+      const targetWidth = measuredScrollWidth + 80;
+      clonedElement.style.width = `${targetWidth}px`;
+      if (clonedTableContainer) {
+        clonedTableContainer.style.width = `${measuredScrollWidth}px`;
+      }
+
+      // Brief delay to permit document element recalculation
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const captureScale = format === 'grid-a0' ? 2 : format === 'grid-a3' ? 1.5 : 1.2;
+
+      // 3. Complete Width Canvas Metrics
+      const canvas = await html2canvas(clonedElement, {
+        width: clonedElement.scrollWidth,
+        height: clonedElement.scrollHeight,
+        windowWidth: clonedElement.scrollWidth, // Forces html2canvas to render at ultra-wide resolution desktop scale
+        scale: captureScale, // Keeps text definitions exceptionally sharp
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff'
       });
 
-      // Restore original state
+      // 4. Proportional PDF Canvas Stitching
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [imgWidth, imgHeight] // Perfectly hugs the canvas dimensions
+      });
+
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+      
+      const cleanProjectName = settings.projectName.toLowerCase().replace(/[^a-zA-Z0-9_\-]+/g, '_');
+      const formatSuffix = format.replace('grid-', '');
+      doc.save(`${cleanProjectName}_gantt_blueprint_${formatSuffix}.pdf`);
+
+      showToast(`Landscape Gantt chart PDF generated successfully (${formatSuffix.toUpperCase()})!`, 'success');
+    } catch (err) {
+      console.error('PDF Grid export error:', err);
+      showToast('Error crafting PDF file. Please inspect console logs.', 'info');
+    } finally {
+      // Clean up DOM clone
+      if (clonedElement && document.body.contains(clonedElement)) {
+        document.body.removeChild(clonedElement);
+      }
+
+      // Restore style classes on original container element
       if (highContrastGrid) {
         container.classList.remove('high-contrast-grid');
       }
       container.classList.remove('is-printing-pdf');
 
-      if (tableContainer) {
-        tableContainer.style.overflowX = originalTableOverflow;
-        tableContainer.style.width = originalTableWidth;
-      }
-      container.style.maxWidth = originalContainerMaxWidth;
-      container.style.width = originalContainerWidth;
-
-      const dimensions = {
-        'grid-a0': { w: 1189, h: 841, name: 'a0' },
-        'grid-a3': { w: 420, h: 297, name: 'a3' },
-        'grid-a4': { w: 297, h: 210, name: 'a4' }
-      };
-
-      const selectedDim = dimensions[format];
-
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: selectedDim.name as any,
-      });
-
-      const pdfWidth = selectedDim.w;
-      const pdfHeight = selectedDim.h;
-
-      const canvasWidth = canvas.width;
-      const canvasHeight = canvas.height;
-      const canvasAspectRatio = canvasWidth / canvasHeight;
-
-      let imgWidth = pdfWidth;
-      let imgHeight = pdfWidth / canvasAspectRatio;
-
-      if (imgHeight > pdfHeight) {
-        imgHeight = pdfHeight;
-        imgWidth = pdfHeight * canvasAspectRatio;
-      }
-
-      const xOffset = (pdfWidth - imgWidth) / 2;
-      const yOffset = (pdfHeight - imgHeight) / 2;
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
-
-      const cleanProjectName = settings.projectName.toLowerCase().replace(/[^a-zA-Z0-9_\-]+/g, '_');
-      pdf.save(`${cleanProjectName}_${selectedDim.name}_grid_map.pdf`);
-
-      showToast(`Landscape ${selectedDim.name.toUpperCase()} Grid Map generated successfully!`, 'success');
-    } catch (err) {
-      console.error('PDF Grid export error:', err);
-      showToast('Error crafting PDF file. Please inspect console logs.', 'info');
-    } finally {
-      // Completely restore original browser style reader immediately after rendering loop completes
+      // 3. Completely restore the original browser style reader immediately after rendering
       window.getComputedStyle = originalGetComputedStyle;
+      
       setIsExporting(false);
       setIsGeneratingPDF(false); // Restore fully editable interactive controls
       setIsExportModalOpen(false);
