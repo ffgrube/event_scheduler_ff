@@ -39,19 +39,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 // Initial tasks demo dataset as server-side fallback
-const INITIAL_DEMO_TASKS = [
-  { id: 'task-1', code: 'LOG', date: '2026-07-06', time: '06:30', details: 'truck 2', status: 'Not Started' },
-  { id: 'task-2', code: 'LX', date: '2026-06-12', time: '06:30', details: '06:30 - Pre-rig truss hoist motors inspection', status: 'Not Started' },
-  { id: 'task-3', code: 'LX', date: '2026-06-12', time: '14:00', details: '14:00 - Motor hang and structural safety point lock', status: 'Not Started' },
-  { id: 'task-4', code: 'AV', date: '2026-06-12', time: '19:15', details: '19:15 - Night line-array power loom runs', status: 'Not Started' },
-  { id: 'task-5', code: 'STG', date: '2026-06-13', time: '09:00', details: '09:00 - Scenic deck framing assemble', status: 'Not Started' },
-  { id: 'task-6', code: 'AV', date: '2026-06-13', time: '06:30', details: '13:00 - FOH audio console positioning & sound check', status: 'In Progress' },
-  { id: 'task-7', code: 'MKT', date: '2026-06-13', time: '', details: 'ALL DAY: Venue exterior graphic wraps install', status: 'Not Started' },
-  { id: 'task-8', code: 'LX', date: '2026-06-14', time: '10:30', details: '10:30 - Profiles circuit check and dimming patch', status: 'In Progress' },
-  { id: 'task-9', code: 'OPS', date: '2026-06-14', time: '15:00', details: '15:00 - Security briefing and usher perimeter maps', status: 'Not Started' },
-  { id: 'task-10', code: 'STG', date: '2026-06-14', time: '20:00', details: '20:00 - Dark rehearsal stage look design lock', status: 'Not Started' },
-  { id: 'task-11', code: 'LOG', date: '2026-06-15', time: '23:30', details: '23:30 - Midnight catering delivery window check', status: 'Completed' }
-];
+const INITIAL_DEMO_TASKS: any[] = [];
 
 // Helper to Load Tasks
 function loadTasks(): Task[] {

@@ -21,10 +21,13 @@ export interface Task {
   status: TaskStatus;
   durationDays?: number; // Optional duration in days, defaulting to 1
   subtasks?: Omit<Task, 'code' | 'date'>[]; // Recursive subtasks
+  parentTaskId?: string; // Parent Task ID if this is a subtask
 }
 
 export interface ProjectSettings {
   projectName: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  dayNames?: Record<string, string>; // YYYY-MM-DD -> Custom Day Name
+  dayNotes?: Record<string, string>; // YYYY-MM-DD -> Custom Day Notes/Details
 }

@@ -7,14 +7,8 @@ import { Department, Task, TaskStatus } from './types';
 
 // Standard production departments with elegant professional color palettes
 export const DEFAULT_DEPARTMENTS: Department[] = [
-  { code: 'LX', name: 'Lighting & Electrics', color: '#2563eb', textColor: '#ffffff' }, // Blue
-  { code: 'AV', name: 'Audiovisual & Video', color: '#7c3aed', textColor: '#ffffff' }, // Purple
-  { code: 'STG', name: 'Stage & Carpentry', color: '#dc2626', textColor: '#ffffff' },  // Red
-  { code: 'LOG', name: 'Logistics & Transport', color: '#d97706', textColor: '#ffffff' }, // Amber
-  { code: 'MKT', name: 'Marketing & Signs', color: '#db2777', textColor: '#ffffff' }, // Pink
-  { code: 'OPS', name: 'Operations & Security', color: '#16a34a', textColor: '#ffffff' }, // Green
-  { code: 'SND', name: 'Sound & Audio', color: '#0891b2', textColor: '#ffffff' }, // Cyan
-  { code: 'GEN', name: 'General/Catering', color: '#4b5563', textColor: '#ffffff' }, // Slate Gray
+  { code: 'ARC', name: 'ARC production', color: '#0ea5e9', textColor: '#ffffff' }, // Elegant Sky Blue
+  { code: 'MISC', name: 'misc', color: '#64748b', textColor: '#ffffff' }, // Slate Gray
 ];
 
 export function getDaysDifference(from: string, toStr: string): number {

@@ -39,6 +39,8 @@ import html2canvas from 'html2canvas';
 
 export const PDF_SAFE_COLORS: Record<string, string> = {
   ALL: '#64748B',  // Slate
+  ARC: '#0ea5e9',  // Sky Blue
+  MISC: '#64748b', // Slate Gray
   LX: '#EAB308',   // Amber
   AV: '#3B82F6',   // Blue
   LOG: '#22C55E',  // Green
@@ -60,6 +62,7 @@ interface UnifiedTimelineProps {
   selectedDeptFilter: string;
   showToast: (msg: string, type?: 'success' | 'info') => void;
   isReadOnly?: boolean;
+  onUpdateSettings?: (settings: ProjectSettings) => void;
 }
 
 export default function UnifiedTimeline({
@@ -73,6 +76,7 @@ export default function UnifiedTimeline({
   selectedDeptFilter,
   showToast,
   isReadOnly = false,
+  onUpdateSettings,
 }: UnifiedTimelineProps) {
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -580,16 +584,82 @@ export default function UnifiedTimeline({
               </th>
  
               {/* Right Side Date Slots Headers */}
-              {dateRange.map((dayDate, dayIdx) => (
-                <th 
-                  key={dayDate} 
-                  style={{ backgroundColor: '#0f172a', color: '#ffffff', borderColor: '#334155' }}
-                  className="text-center text-[10px] font-extrabold uppercase border-r py-2 tracking-wide min-w-[120px]"
-                >
-                  <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
-                  <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
-                </th>
-              ))}
+              {dateRange.map((dayDate, dayIdx) => {
+                const dayName = settings.dayNames?.[dayDate] || '';
+                const dayNote = settings.dayNotes?.[dayDate] || '';
+
+                return (
+                  <th 
+                    key={dayDate} 
+                    style={{ backgroundColor: '#0f172a', color: '#ffffff', borderColor: '#334155' }}
+                    className="text-center text-[10px] font-extrabold uppercase border-r py-3 px-2 tracking-wide min-w-[140px] align-top"
+                  >
+                    <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
+                    <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
+                    
+                    {/* CUSTOM DAY NAME & NOTE FIELDS */}
+                    {showReadOnlyLayout ? (
+                      <div className="mt-2 space-y-1 normal-case text-left font-sans select-all font-normal">
+                        {dayName && (
+                          <div className="text-[10px] font-bold text-indigo-300 truncate max-w-[130px] text-center" title={dayName}>
+                            ● {dayName}
+                          </div>
+                        )}
+                        {dayNote && (
+                          <div className="text-[9px] text-slate-400 italic break-words leading-tight max-w-[130px] text-center" title={dayNote}>
+                            {dayNote}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-2.5 flex flex-col gap-1.5 normal-case font-sans">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Day Name"
+                            value={dayName}
+                            onChange={(e) => {
+                              const updatedNames = {
+                                ...(settings.dayNames || {}),
+                                [dayDate]: e.target.value
+                              };
+                              if (onUpdateSettings) {
+                                onUpdateSettings({
+                                  ...settings,
+                                  dayNames: updatedNames
+                                });
+                              }
+                            }}
+                            className="w-full text-[9.5px] font-semibold bg-[#1e293b] border border-slate-700 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-white rounded px-1.5 py-1 text-center placeholder-slate-500 focus:outline-none transition-all"
+                            title="Name this Day (e.g. Press Day, Show Start)"
+                          />
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Potential notes"
+                            value={dayNote}
+                            onChange={(e) => {
+                              const updatedNotes = {
+                                ...(settings.dayNotes || {}),
+                                [dayDate]: e.target.value
+                              };
+                              if (onUpdateSettings) {
+                                onUpdateSettings({
+                                  ...settings,
+                                  dayNotes: updatedNotes
+                                });
+                              }
+                            }}
+                            className="w-full text-[9px] bg-[#1e293b]/70 border border-slate-750 hover:border-slate-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20 text-slate-300 rounded px-1.5 py-0.5 text-center placeholder-slate-550 italic focus:outline-none transition-all font-medium"
+                            title="Notes for today (e.g. Gates open at 17:00)"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -755,8 +825,8 @@ export default function UnifiedTimeline({
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
 
-                              {/* Plus button to add subtasks recursively */}
-                              {row.type === 'parent' && (
+                              {/* Plus button to add subtasks recursively under any item */}
+                              {(row.type === 'parent' || row.type === 'subtask') && (
                                 <button
                                   onClick={() => {
                                     const nestedSubtaskDraft = {
@@ -767,7 +837,7 @@ export default function UnifiedTimeline({
                                       details: '',
                                       status: 'Not Started' as TaskStatus,
                                       durationDays: 1,
-                                      parentTaskId: task.id
+                                      parentTaskId: row.originalId,
                                     };
                                     onEditTask(nestedSubtaskDraft as any);
                                   }}

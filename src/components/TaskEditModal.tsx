@@ -87,6 +87,7 @@ export default function TaskEditModal({
       details: details.trim(),
       status,
       durationDays,
+      parentTaskId: task.parentTaskId,
     });
 
     onClose();
@@ -134,7 +135,7 @@ export default function TaskEditModal({
               />
               <h3 className="text-sm font-bold text-slate-800 tracking-tight uppercase flex items-center gap-2">
                 <Layers className="w-4.5 h-4.5 text-indigo-600" />
-                {isEditMode ? 'Modify Scheduled Task' : 'Quick Schedule New Task'}
+                {isEditMode ? 'Modify' : 'Create'} {task.parentTaskId ? 'Subtask' : 'Scheduled Task'}
               </h3>
             </div>
             
@@ -244,36 +245,6 @@ export default function TaskEditModal({
                 placeholder="e.g. Center stage audio check & cable patch logic"
                 className="w-full text-sm px-3.5 py-2.5 border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none bg-slate-50/20 focus:bg-white transition-all"
               />
-            </div>
-
-            {/* 4. Task status choice picker */}
-            <div className="space-y-2">
-              <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
-                Sheduler Task Status
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {(['Not Started', 'In Progress', 'Completed', 'Deferred'] as TaskStatus[]).map((st) => {
-                  const isSelected = status === st;
-                  let colorClass = 'border-slate-200 text-slate-600 hover:bg-slate-50';
-                  if (isSelected) {
-                    if (st === 'Completed') colorClass = 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold';
-                    else if (st === 'In Progress') colorClass = 'bg-amber-50 border-amber-500 text-amber-700 font-bold';
-                    else if (st === 'Deferred') colorClass = 'bg-rose-50 border-rose-500 text-rose-700 font-bold';
-                    else colorClass = 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold';
-                  }
-
-                  return (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => setStatus(st)}
-                      className={`px-1.5 py-2 border rounded-lg text-[10px] text-center transition-all cursor-pointer ${colorClass}`}
-                    >
-                      {st}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
             {error && (
