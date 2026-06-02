@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Department, Task } from '../types';
 import { Filter, Settings, Plus, Trash2, Check, X, Palette } from 'lucide-react';
+import { PDF_SAFE_COLORS } from './UnifiedTimeline';
 
 interface DepartmentFilterProps {
   departments: Department[];
@@ -168,17 +169,18 @@ export default function DepartmentFilter({
               <div className="flex flex-wrap gap-1.5">
                 {departments.map((dept) => {
                   const usageCount = tasks.filter((t) => t.code === dept.code).length;
+                  const deptColor = PDF_SAFE_COLORS[dept.code] || dept.color;
                   return (
                     <div
                       key={dept.code}
                       className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-lg text-xs font-bold border"
                       style={{
-                        backgroundColor: `${dept.color}15`,
-                        borderColor: dept.color,
-                        color: dept.color,
+                        backgroundColor: `${deptColor}15`,
+                        borderColor: deptColor,
+                        color: deptColor,
                       }}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dept.color }}></span>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: deptColor }}></span>
                       <span>{dept.code}</span>
                       <span className="text-[9px] opacity-70 font-normal">({usageCount} tasks)</span>
                       
@@ -293,20 +295,21 @@ export default function DepartmentFilter({
             </button>
             {departments.map((dept) => {
               const isSelected = selectedDeptFilter === dept.code;
+              const deptColor = PDF_SAFE_COLORS[dept.code] || dept.color;
               return (
                 <button
                   key={dept.code}
                   onClick={() => onSelectDeptFilter(dept.code)}
                   className="px-2 py-1.5 rounded-lg text-xs font-bold transition-all border text-center flex items-center justify-center gap-1 cursor-pointer select-none"
                   style={{
-                    backgroundColor: isSelected ? dept.color : '#f8fafc',
+                    backgroundColor: isSelected ? deptColor : '#f8fafc',
                     color: isSelected ? '#ffffff' : '#475569',
-                    borderColor: isSelected ? dept.color : '#e2e8f0',
+                    borderColor: isSelected ? deptColor : '#e2e8f0',
                   }}
                 >
                   <span
                     className="w-1.5 h-1.5 rounded-full"
-                    style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
+                    style={{ backgroundColor: isSelected ? '#ffffff' : deptColor }}
                   ></span>
                   {dept.code}
                 </button>

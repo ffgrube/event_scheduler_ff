@@ -1,1 +1,102 @@
 @import "tailwindcss";
+
+/* PDF Export print utility overrides */
+.is-printing-pdf .no-print {
+  display: none !important;
+}
+
+.is-printing-pdf .print-header-pdf {
+  display: block !important;
+}
+
+.is-printing-pdf .sticky {
+  position: static !important;
+}
+
+.is-printing-pdf select,
+.is-printing-pdf input {
+  border: none !important;
+  background-color: transparent !important;
+  color: #1e293b !important;
+  box-shadow: none !important;
+  padding: 0px 4px !important;
+  pointer-events: none !important;
+}
+
+/* Ensure consistent fonts and layout when capturing */
+.is-printing-pdf {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif !important;
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+}
+
+/* Redefine Tailwind CSS theme variable variables to safe HEX colors 
+   to block computed 'oklch' leaks in html2canvas tree lookups */
+.is-printing-pdf,
+.is-printing-pdf * {
+  --color-slate-50: #f8fafc !important;
+  --color-slate-100: #f1f5f9 !important;
+  --color-slate-200: #e2e8f0 !important;
+  --color-slate-300: #cbd5e1 !important;
+  --color-slate-400: #94a3b8 !important;
+  --color-slate-500: #64748b !important;
+  --color-slate-600: #475569 !important;
+  --color-slate-700: #334155 !important;
+  --color-slate-800: #1e293b !important;
+  --color-slate-900: #0f172a !important;
+  --color-slate-950: #020617 !important;
+
+  --color-indigo-50: #e0e7ff !important;
+  --color-indigo-100: #c7d2fe !important;
+  --color-indigo-200: #a5b4fc !important;
+  --color-indigo-300: #818cf8 !important;
+  --color-indigo-400: #6366f1 !important;
+  --color-indigo-500: #6366f1 !important;
+  --color-indigo-600: #4f46e5 !important;
+  --color-indigo-700: #4338ca !important;
+  --color-indigo-800: #3730a3 !important;
+  --color-indigo-900: #312e81 !important;
+
+  --color-amber-50: #fffbeb !important;
+  --color-amber-100: #fef3c7 !important;
+  --color-amber-500: #f59e0b !important;
+  --color-amber-600: #d97706 !important;
+  --color-amber-700: #b45309 !important;
+
+  --color-emerald-50: #ecfdf5 !important;
+  --color-emerald-100: #d1fae5 !important;
+  --color-emerald-600: #059669 !important;
+
+  --color-purple-100: #f3e8ff !important;
+  --color-purple-700: #7e22ce !important;
+
+  --color-blue-650: #2563eb !important;
+  --color-blue-600: #2563eb !important;
+  --color-red-600: #dc2626 !important;
+  --color-pink-600: #db2777 !important;
+  --color-green-600: #16a34a !important;
+  --color-cyan-600: #0891b2 !important;
+
+  --color-gray-100: #f3f4f6 !important;
+  --color-gray-200: #e5e7eb !important;
+  --color-gray-300: #d1d5db !important;
+  --color-gray-400: #9ca3af !important;
+  --color-gray-500: #6b7280 !important;
+  --color-gray-600: #4b5563 !important;
+  --color-gray-700: #374151 !important;
+  --color-gray-800: #1f2937 !important;
+  --color-gray-900: #111827 !important;
+
+  /* Strip modern visual effects like box shadows or complex borders that may default to oklch gradients */
+  background-image: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  outline: none !important;
+  outline-color: transparent !important;
+  text-decoration-color: transparent !important;
+}
+
+.high-contrast-grid th,
+.high-contrast-grid td {
+  border-color: #94a3b8 !important; /* Stand-out dark borders */
+}

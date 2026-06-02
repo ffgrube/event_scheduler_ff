@@ -95,3 +95,30 @@ export function sortTasks(tasks: Task[]): Task[] {
     return a.code.localeCompare(b.code);
   });
 }
+
+/**
+ * Safely converts any hex color string (e.g., "#2563eb", "2563eb", "#f00", "f00", etc.)
+ * into an {r, g, b} object with robust fallbacks to prevent crashes in older PDF engines.
+ */
+export function hexToRgb(hex: string, fallback = { r: 79, g: 70, b: 229 }): { r: number; g: number; b: number } {
+  if (!hex || typeof hex !== 'string') return fallback;
+  
+  let cleaned = hex.trim().replace(/^#/, '');
+  
+  if (cleaned.length === 3) {
+    cleaned = cleaned.split('').map(char => char + char).join('');
+  }
+  
+  if (cleaned.length < 6) return fallback;
+  
+  const r = parseInt(cleaned.slice(0, 2), 16);
+  const g = parseInt(cleaned.slice(2, 4), 16);
+  const b = parseInt(cleaned.slice(4, 6), 16);
+  
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return fallback;
+  }
+  
+  return { r, g, b };
+}
+
