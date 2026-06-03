@@ -56,6 +56,23 @@ export default function App() {
   const [projects, setProjects] = useState<any[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(!isReadOnly);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; mode: string; details: string }>({
+    connected: false,
+    mode: 'Checking database connectivity...',
+    details: 'Querying operational server status...'
+  });
+
+  const checkDbStatus = async () => {
+    try {
+      const res = await fetch('/api/db-status');
+      if (res.ok) {
+        const data = await res.json();
+        setDbStatus(data);
+      }
+    } catch (e) {
+      console.warn('Backend database status inquiry offline', e);
+    }
+  };
   
   const [newProjName, setNewProjName] = useState<string>('');
   const [newProjStart, setNewProjStart] = useState<string>('2026-07-06');
@@ -225,6 +242,7 @@ export default function App() {
   // Sync projects and active on start
   useEffect(() => {
     loadProjectsList();
+    checkDbStatus();
   }, []);
 
   const [confirmReset, setConfirmReset] = useState(false);
@@ -556,6 +574,40 @@ export default function App() {
               Initialize, configure, or load custom multidevice time-slot production schedules. Each project acts as a completely isolated staging database.
             </p>
             <div className="w-16 h-1 bg-indigo-600 mx-auto rounded-full mt-4"></div>
+          </div>
+
+          {/* Database Synchronization Status Ribbon */}
+          <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs transition-all text-xs ${
+            dbStatus.connected 
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+              : 'bg-slate-50 border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-start gap-3">
+              <div className={`p-2 rounded-lg ${dbStatus.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-650'}`}>
+                <div className="relative flex h-2.5 w-2.5">
+                  {dbStatus.connected && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  )}
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dbStatus.connected ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                </div>
+              </div>
+              <div>
+                <h4 className="font-extrabold uppercase tracking-wide text-[10px] mb-0.5 flex items-center gap-1.5">
+                  Database Link Status: <strong className="underline">{dbStatus.mode}</strong>
+                </h4>
+                <p className="font-medium opacity-90 leading-relaxed max-w-[800px]">
+                  {dbStatus.details}
+                </p>
+              </div>
+            </div>
+            
+            {!dbStatus.connected && (
+              <div className="flex-shrink-0">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-extrabold text-slate-600">
+                  <span>Supabase Sync Offline</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">

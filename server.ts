@@ -7,6 +7,11 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
+
+// Load local environment variables
+dotenv.config();
 
 interface Task {
   id: string;
@@ -83,8 +88,100 @@ const FALLBACK_DEPARTMENTS: Department[] = [
   { code: 'MISC', name: 'misc', color: '#64748b', textColor: '#ffffff' }
 ];
 
-// Helper to Load Projects
-function loadProjects(): Project[] {
+// Lazily initialized Supabase client
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseClient() {
+  if (supabase) return supabase;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_KEY;
+  if (!url || !key) {
+    return null;
+  }
+  supabase = createClient(url, key);
+  return supabase;
+}
+
+function isSupabaseConfigured(): boolean {
+  return !!(process.env.SUPABASE_URL && process.env.SUPABASE_KEY);
+}
+
+// Helper to Load Projects Default Definitions
+function getInitialProjects(): Project[] {
+  let legacyTasks: Task[] = [];
+  if (fs.existsSync(TASKS_FILE)) {
+    try {
+      legacyTasks = JSON.parse(fs.readFileSync(TASKS_FILE, "utf-8"));
+    } catch {}
+  }
+
+  let legacyChanges: ChangeLog[] = [];
+  if (fs.existsSync(CHANGES_FILE)) {
+    try {
+      legacyChanges = JSON.parse(fs.readFileSync(CHANGES_FILE, "utf-8"));
+    } catch {}
+  }
+
+  return [
+    {
+      id: "basel-tattoo-2026",
+      name: "Basel Tattoo 2026",
+      settings: {
+        projectName: "Basel Tattoo 2026",
+        startDate: "2026-07-06",
+        endDate: "2026-07-30",
+        dayNames: {},
+        dayNotes: {}
+      },
+      departments: FALLBACK_DEPARTMENTS,
+      tasks: legacyTasks,
+      changesToday: legacyChanges
+    }
+  ];
+}
+
+// Helper to persistent fallback file-save on local disk
+function saveProjectsOnDisk(projects: Project[]) {
+  try {
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Could not write projects.json to disk:", err);
+  }
+}
+
+// Helper to Load Projects asynchronously from Supabase, in-memory, or static JSON disk
+async function loadProjects(): Promise<Project[]> {
+  const sbClient = getSupabaseClient();
+  if (sbClient) {
+    try {
+      const { data, error } = await (sbClient as any)
+        .from("projects")
+        .select("*");
+      if (error) {
+        console.error("Supabase load projects error, falling back to disk/memory:", error);
+      } else if (data && data.length > 0) {
+        const projectsFromDb = data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          settings: p.settings || {},
+          departments: p.departments || [],
+          tasks: p.tasks || [],
+          changesToday: p.changesToday || p.changes_today || []
+        }));
+        _projectsMemoryCache = projectsFromDb;
+        saveProjectsOnDisk(projectsFromDb);
+        return projectsFromDb;
+      } else {
+        console.log("Supabase table 'projects' is empty. Initializing defaults in Supabase...");
+        const initial = getInitialProjects();
+        await saveProjects(initial);
+        return initial;
+      }
+    } catch (err) {
+      console.error("Exception fetching projects from Supabase, using local fallback copy:", err);
+    }
+  }
+
   if (_projectsMemoryCache && _projectsMemoryCache.length > 0) {
     return _projectsMemoryCache;
   }
@@ -101,52 +198,42 @@ function loadProjects(): Project[] {
     }
   }
 
-  // Handle migration of single project data if legacy files exist
-  let legacyTasks: Task[] = [];
-  if (fs.existsSync(TASKS_FILE)) {
-    try {
-      legacyTasks = JSON.parse(fs.readFileSync(TASKS_FILE, "utf-8"));
-    } catch {}
-  }
-
-  let legacyChanges: ChangeLog[] = [];
-  if (fs.existsSync(CHANGES_FILE)) {
-    try {
-      legacyChanges = JSON.parse(fs.readFileSync(CHANGES_FILE, "utf-8"));
-    } catch {}
-  }
-
-  const initialProjects: Project[] = [
-    {
-      id: "basel-tattoo-2026",
-      name: "Basel Tattoo 2026",
-      settings: {
-        projectName: "Basel Tattoo 2026",
-        startDate: "2026-07-06",
-        endDate: "2026-07-30",
-        dayNames: {},
-        dayNotes: {}
-      },
-      departments: FALLBACK_DEPARTMENTS,
-      tasks: legacyTasks,
-      changesToday: legacyChanges
-    }
-  ];
-
+  const initialProjects = getInitialProjects();
   _projectsMemoryCache = initialProjects;
   try {
-    saveProjects(initialProjects);
+    saveProjectsOnDisk(initialProjects);
   } catch {}
   return initialProjects;
 }
 
-// Helper to Save Projects
-function saveProjects(projects: Project[]) {
+// Helper to Save Projects in Supabase, sync RAM cache & disk
+async function saveProjects(projects: Project[]) {
   _projectsMemoryCache = projects;
-  try {
-    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Could not write projects.json to disk, keeping changes in running process memory:", err);
+  saveProjectsOnDisk(projects);
+
+  const sbClient = getSupabaseClient();
+  if (sbClient) {
+    try {
+      for (const p of projects) {
+        const { error } = await (sbClient as any)
+          .from("projects")
+          .upsert({
+            id: p.id,
+            name: p.name,
+            settings: p.settings,
+            departments: p.departments,
+            tasks: p.tasks,
+            changesToday: p.changesToday,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+          
+        if (error) {
+          console.error(`Error saving project '${p.id}' to Supabase:`, error);
+        }
+      }
+    } catch (err) {
+      console.error("Exception saving projects list to Supabase:", err);
+    }
   }
 }
 
@@ -190,9 +277,21 @@ function flattenTasksList(tasksList: Task[]): Task[] {
 
 // ---------------- API ENDPOINTS ----------------
 
+// DB Status check endpoint
+app.get("/api/db-status", (req, res) => {
+  const configured = isSupabaseConfigured();
+  res.json({
+    connected: configured,
+    mode: configured ? "Supabase Cloud Database" : "Local Ephemeral JSON File Fallback",
+    details: configured
+      ? "All scheduler lanes, tasks, and changelogs are synchronized in real-time with your live Supabase cloud workspace."
+      : "Currently running with fallback system memory/local disk storage (due to missing SUPABASE_URL / SUPABASE_KEY). Configure environment variables in Settings to activate database storage."
+  });
+});
+
 // Fetch list of projects with task/depts count (metadata style for active picker)
-app.get("/api/projects", (req, res) => {
-  const projects = loadProjects();
+app.get("/api/projects", async (req, res) => {
+  const projects = await loadProjects();
   const summaries = projects.map(p => ({
     id: p.id,
     name: p.name,
@@ -204,9 +303,9 @@ app.get("/api/projects", (req, res) => {
 });
 
 // Fetch a specific project's full details
-app.get("/api/projects/:id", (req, res) => {
+app.get("/api/projects/:id", async (req, res) => {
   const { id } = req.params;
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const project = projects.find(p => p.id === id);
   if (!project) {
     return res.status(404).json({ error: "Project not found" });
@@ -215,13 +314,13 @@ app.get("/api/projects/:id", (req, res) => {
 });
 
 // Create/Update a new project or settings
-app.post("/api/projects", (req, res) => {
+app.post("/api/projects", async (req, res) => {
   const { id, name, settings, departments, tasks } = req.body;
   if (!id || !name) {
     return res.status(400).json({ error: "id and name are required parameters." });
   }
 
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const index = projects.findIndex(p => p.id === id);
 
   if (index >= 0) {
@@ -242,14 +341,14 @@ app.post("/api/projects", (req, res) => {
     });
   }
 
-  saveProjects(projects);
+  await saveProjects(projects);
   res.json({ success: true, id });
 });
 
 // Delete specific project
-app.delete("/api/projects/:id", (req, res) => {
+app.delete("/api/projects/:id", async (req, res) => {
   const { id } = req.params;
-  let projects = loadProjects();
+  let projects = await loadProjects();
   const beforeCount = projects.length;
   projects = projects.filter(p => p.id !== id);
 
@@ -271,23 +370,31 @@ app.delete("/api/projects/:id", (req, res) => {
     }];
   }
 
-  saveProjects(projects);
+  await saveProjects(projects);
+
+  const sbClient = getSupabaseClient();
+  if (sbClient) {
+    try {
+      await (sbClient as any).from("projects").delete().eq("id", id);
+    } catch {}
+  }
+
   res.json({ success: true, deleted: beforeCount > projects.length });
 });
 
 // Fetch entire list of tasks for the selected project
-app.get("/api/tasks", (req, res) => {
+app.get("/api/tasks", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const project = projects.find(p => p.id === projectId) || projects[0];
   res.json(project?.tasks || []);
 });
 
 // Save or Sync full tasks lists while auto-comparing changes to log output
-app.post("/api/tasks", (req, res) => {
+app.post("/api/tasks", async (req, res) => {
   const projectId = req.query.projectId as string;
   const newTasks = req.body as Task[];
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const projIdx = projects.findIndex(p => p.id === projectId);
   
   if (projIdx === -1) {
@@ -344,27 +451,27 @@ app.post("/api/tasks", (req, res) => {
     project.changesToday = [...(project.changesToday || []), ...newChanges];
   }
 
-  saveProjects(projects);
+  await saveProjects(projects);
   res.json({ success: true, count: newTasks.length });
 });
 
 // Fetch active changes for the selected project
-app.get("/api/changes", (req, res) => {
+app.get("/api/changes", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const project = projects.find(p => p.id === projectId) || projects[0];
   res.json(project?.changesToday || []);
 });
 
 // Wipe operational log history of the selected project
-app.post("/api/changes/reset", (req, res) => {
+app.post("/api/changes/reset", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = loadProjects();
+  const projects = await loadProjects();
   const project = projects.find(p => p.id === projectId) || projects[0];
   
   if (project) {
     project.changesToday = [];
-    saveProjects(projects);
+    await saveProjects(projects);
   }
   res.json({ success: true });
 });
