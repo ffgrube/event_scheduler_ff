@@ -478,6 +478,12 @@ app.post("/api/changes/reset", async (req, res) => {
 
 // Initialize Vite server for asset handling
 async function boot() {
+  if (process.env.VERCEL === "1") {
+    // On Vercel serverless, static files and routing are handled by vercel.json.
+    // We just export the app for the serverless handler.
+    return;
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -498,3 +504,5 @@ async function boot() {
 }
 
 boot();
+
+export default app;
