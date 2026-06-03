@@ -3,10 +3,7 @@
   "builds": [
     {
       "src": "server.ts",
-      "use": "@vercel/node",
-      "config": {
-        "projectType": "custom"
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -15,8 +12,11 @@
       "dest": "server.ts"
     },
     {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "server.ts"
     }
   ]
 }
