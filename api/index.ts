@@ -1,3 +1,5 @@
-import app from "../server";
+// Register TypeScript execution support on the fly
+register: require('ts-node').register;
 
-export default app;
+// Import your true server.ts file directly
+module.exports = require('../server.ts');
