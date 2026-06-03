@@ -12,11 +12,12 @@
       "dest": "dist/server.cjs"
     },
     {
-      "handle": "filesystem"
+      "src": "/assets/(.*)",
+      "dest": "/dist/assets/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "dist/server.cjs"
+      "dest": "/dist/index.html"
     }
   ]
 }
