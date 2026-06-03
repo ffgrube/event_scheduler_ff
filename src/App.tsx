@@ -176,9 +176,12 @@ export default function App() {
         showToast(`Project "${payload.name}" initialized!`, 'success');
         await loadProjectsList();
         await handleSelectProject(id);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showToast(`Could not boot workspace: ${errData.error || res.statusText || 'Server rejected request'}`, 'info');
       }
-    } catch (e) {
-      showToast('Failed to create new project on database.', 'info');
+    } catch (e: any) {
+      showToast(`Network error: ${e?.message || 'could not reach database server'}`, 'info');
     }
   };
 

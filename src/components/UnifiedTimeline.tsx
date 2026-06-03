@@ -28,6 +28,7 @@ import {
   Loader2,
   X,
   ChevronRight,
+  ChevronDown,
   Check,
   Download,
   Eye,
@@ -167,7 +168,40 @@ export default function UnifiedTimeline({
   const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda'>('agenda');
   const [highContrastGrid, setHighContrastGrid] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [exportDeptFilter, setExportDeptFilter] = useState<string>('ALL');
+  const [exportDeptFilters, setExportDeptFilters] = useState<string[]>(['ALL']);
+  const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState<boolean>(false);
+
+  const handleToggleExportDept = (deptCode: string) => {
+    if (deptCode === 'ALL') {
+      setExportDeptFilters(['ALL']);
+    } else {
+      const withoutAll = exportDeptFilters.filter(item => item !== 'ALL');
+      if (withoutAll.includes(deptCode)) {
+        const next = withoutAll.filter(item => item !== deptCode);
+        if (next.length === 0) {
+          setExportDeptFilters(['ALL']);
+        } else {
+          setExportDeptFilters(next);
+        }
+      } else {
+        setExportDeptFilters([...withoutAll, deptCode]);
+      }
+    }
+  };
+
+  const getExportDeptDisplayText = () => {
+    if (exportDeptFilters.includes('ALL') || exportDeptFilters.length === 0) {
+      return '-- ALL DEPARTMENTS --';
+    }
+    if (exportDeptFilters.length === departments.length) {
+      return '-- ALL DEPARTMENTS --';
+    }
+    return departments
+      .filter(d => exportDeptFilters.includes(d.code))
+      .map(d => d.code)
+      .join(', ');
+  };
+
   const [includeNotesInExport, setIncludeNotesInExport] = useState<boolean>(true);
   const [exportOnlyWithNotes, setExportOnlyWithNotes] = useState<boolean>(false);
   const [viewingNotesTask, setViewingNotesTask] = useState<Task | null>(null);
@@ -252,8 +286,8 @@ export default function UnifiedTimeline({
         // Filter tasks based on PDF export configuration
         const dayTasks = tasks.filter(t => {
           if (t.date !== dayDate) return false;
-          // Filter by department if a specific one is selected
-          if (exportDeptFilter !== 'ALL' && t.code !== exportDeptFilter) return false;
+          // Filter by department if specific ones are selected
+          if (!exportDeptFilters.includes('ALL') && exportDeptFilters.length > 0 && !exportDeptFilters.includes(t.code)) return false;
           // Filter out tasks without notes if exportOnlyWithNotes is enabled
           if (exportOnlyWithNotes && !t.notes) return false;
           return true;
@@ -1316,24 +1350,81 @@ export default function UnifiedTimeline({
                   </span>
 
                   {/* 1. Department Selector Dropdown */}
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="export-dept-select" className="text-sm font-bold text-slate-700">
-                      Export Department
+                  <div className="flex flex-col gap-1.5 relative">
+                    <label className="text-sm font-bold text-slate-700">
+                      Export Department(s)
                     </label>
-                    <select
-                      id="export-dept-select"
-                      value={exportDeptFilter}
-                      onChange={(e) => setExportDeptFilter(e.target.value)}
-                      disabled={isExporting}
-                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
-                    >
-                      <option value="ALL">-- ALL DEPARTMENTS --</option>
-                      {departments.map((dept) => (
-                        <option key={dept.code} value={dept.code}>
-                          [{dept.code}] {dept.name}
-                        </option>
-                      ))}
-                    </select>
+                    
+                    {isDeptDropdownOpen && (
+                      <div 
+                        className="fixed inset-0 z-40 bg-transparent" 
+                        onClick={() => setIsDeptDropdownOpen(false)} 
+                      />
+                    )}
+
+                    <div className="relative z-50">
+                      <button
+                        type="button"
+                        onClick={() => !isExporting && setIsDeptDropdownOpen(!isDeptDropdownOpen)}
+                        disabled={isExporting}
+                        className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium flex items-center justify-between focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer disabled:bg-slate-100 disabled:cursor-not-allowed text-left"
+                      >
+                        <span className="truncate pr-2 text-slate-700">{getExportDeptDisplayText()}</span>
+                        <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                      </button>
+
+                      {isDeptDropdownOpen && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-56 overflow-y-auto p-2.5 flex flex-col gap-1 shadow-indigo-150">
+                          {/* Header */}
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-1 px-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Multiple</span>
+                            <button
+                              type="button"
+                              onClick={() => setExportDeptFilters(['ALL'])}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer"
+                            >
+                              Reset to All
+                            </button>
+                          </div>
+
+                          {/* Option -- ALL -- */}
+                          <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-semibold text-slate-700 select-none">
+                            <input
+                              type="checkbox"
+                              checked={exportDeptFilters.includes('ALL')}
+                              onChange={() => handleToggleExportDept('ALL')}
+                              className="accent-indigo-600 w-3.5 h-3.5 flex-shrink-0 cursor-pointer"
+                            />
+                            <span>-- ALL DEPARTMENTS --</span>
+                          </label>
+
+                          {/* List of departments */}
+                          {departments.map((dept) => {
+                            const isChecked = !exportDeptFilters.includes('ALL') && exportDeptFilters.includes(dept.code);
+                            return (
+                              <label 
+                                key={dept.code} 
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-semibold text-slate-700 select-none"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleExportDept(dept.code)}
+                                  className="accent-indigo-600 w-3.5 h-3.5 flex-shrink-0 cursor-pointer"
+                                />
+                                <span 
+                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                                  style={{ backgroundColor: dept.color || '#64748B' }} 
+                                />
+                                <span className="truncate">
+                                  [{dept.code}] {dept.name}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* 2. Checkboxes for notes */}

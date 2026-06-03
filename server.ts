@@ -65,9 +65,16 @@ const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const CHANGES_FILE = path.join(DATA_DIR, "changes.json");
 
+// In-Memory Database Fallback Cache
+let _projectsMemoryCache: Project[] | null = null;
+
 // Ensure Data Directory Exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.error("Data directory could not be created:", err);
 }
 
 // Global default departments for falling back
@@ -78,14 +85,19 @@ const FALLBACK_DEPARTMENTS: Department[] = [
 
 // Helper to Load Projects
 function loadProjects(): Project[] {
+  if (_projectsMemoryCache && _projectsMemoryCache.length > 0) {
+    return _projectsMemoryCache;
+  }
+
   if (fs.existsSync(PROJECTS_FILE)) {
     try {
       const data = JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8"));
       if (Array.isArray(data) && data.length > 0) {
+        _projectsMemoryCache = data;
         return data;
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error("Error reading projects.json, continuing with fallback:", err);
     }
   }
 
@@ -121,13 +133,21 @@ function loadProjects(): Project[] {
     }
   ];
 
-  saveProjects(initialProjects);
+  _projectsMemoryCache = initialProjects;
+  try {
+    saveProjects(initialProjects);
+  } catch {}
   return initialProjects;
 }
 
 // Helper to Save Projects
 function saveProjects(projects: Project[]) {
-  fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
+  _projectsMemoryCache = projects;
+  try {
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Could not write projects.json to disk, keeping changes in running process memory:", err);
+  }
 }
 
 // Helper to find parent or nested task recursively
