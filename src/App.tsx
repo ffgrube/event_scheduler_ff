@@ -53,10 +53,41 @@ export default function App() {
   const isReadOnly = queryParams ? queryParams.get('mode') === 'view' : false;
   const queryProjectId = queryParams ? queryParams.get('project') : null;
   
+  // Custom Supabase Client Overrides State
+  const [customSbUrl, setCustomSbUrl] = useState<string>(() => typeof window !== 'undefined' ? localStorage.getItem('supabase_url_override') || '' : '');
+  const [customSbKey, setCustomSbKey] = useState<string>(() => typeof window !== 'undefined' ? localStorage.getItem('supabase_key_override') || '' : '');
+  const [showSbConfig, setShowSbConfig] = useState<boolean>(false);
+
+  // Dynamic request wrapper with local overrides
+  const appFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const overrideUrl = typeof window !== 'undefined' ? localStorage.getItem('supabase_url_override') || '' : '';
+    const overrideKey = typeof window !== 'undefined' ? localStorage.getItem('supabase_key_override') || '' : '';
+    const headers = {
+      ...(init?.headers || {}),
+    } as any;
+    if (overrideUrl) headers['x-supabase-url'] = overrideUrl;
+    if (overrideKey) headers['x-supabase-key'] = overrideKey;
+    return fetch(input, {
+      ...init,
+      headers
+    });
+  };
+
   const [projects, setProjects] = useState<any[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(!isReadOnly);
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; mode: string; details: string }>({
+  const [dbStatus, setDbStatus] = useState<{
+    connected: boolean;
+    configured?: boolean;
+    mode: string;
+    details: string;
+    error?: {
+      message: string;
+      code?: string;
+      details?: string;
+      hint?: string;
+    } | null;
+  }>({
     connected: false,
     mode: 'Checking database connectivity...',
     details: 'Querying operational server status...'
@@ -64,7 +95,7 @@ export default function App() {
 
   const checkDbStatus = async () => {
     try {
-      const res = await fetch('/api/db-status');
+      const res = await appFetch('/api/db-status');
       if (res.ok) {
         const data = await res.json();
         setDbStatus(data);
@@ -97,7 +128,7 @@ export default function App() {
 
   const loadProjectsList = async () => {
     try {
-      const res = await fetch('/api/projects');
+      const res = await appFetch('/api/projects');
       if (res.ok) {
         const data = await res.json();
         setProjects(data);
@@ -128,7 +159,7 @@ export default function App() {
 
   const handleSelectProject = async (id: string) => {
     try {
-      const res = await fetch(`/api/projects/${id}`);
+      const res = await appFetch(`/api/projects/${id}`);
       if (res.ok) {
         const p = await res.json();
         setActiveProjectId(id);
@@ -183,7 +214,7 @@ export default function App() {
     };
 
     try {
-      const res = await fetch('/api/projects', {
+      const res = await appFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -209,7 +240,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`/api/projects/${id}`, {
+      const res = await appFetch(`/api/projects/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -229,7 +260,7 @@ export default function App() {
     const targetId = pId || activeProjectId;
     if (!targetId) return;
     try {
-      const res = await fetch(`/api/changes?projectId=${targetId}`);
+      const res = await appFetch(`/api/changes?projectId=${targetId}`);
       if (res.ok) {
         const data = await res.json();
         setChangesToday(data);
@@ -256,7 +287,7 @@ export default function App() {
     if (!activeProjectId) return;
 
     try {
-      const res = await fetch(`/api/tasks?projectId=${activeProjectId}`, {
+      const res = await appFetch(`/api/tasks?projectId=${activeProjectId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sorted),
@@ -277,13 +308,13 @@ export default function App() {
     
     if (activeProjectId) {
       try {
-        const res = await fetch(`/api/projects/${activeProjectId}`);
+        const res = await appFetch(`/api/projects/${activeProjectId}`);
         if (res.ok) {
           const p = await res.json();
           p.settings = newSettings;
           p.name = newSettings.projectName;
           
-          await fetch('/api/projects', {
+          await appFetch('/api/projects', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(p)
@@ -304,12 +335,12 @@ export default function App() {
 
     if (activeProjectId) {
       try {
-        const res = await fetch(`/api/projects/${activeProjectId}`);
+        const res = await appFetch(`/api/projects/${activeProjectId}`);
         if (res.ok) {
           const p = await res.json();
           p.departments = updatedDepts;
           
-          await fetch('/api/projects', {
+          await appFetch('/api/projects', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(p)
@@ -326,7 +357,7 @@ export default function App() {
   const handleClearChangesHistory = async () => {
     if (!activeProjectId) return;
     try {
-      await fetch(`/api/changes/reset?projectId=${activeProjectId}`, { method: 'POST' });
+      await appFetch(`/api/changes/reset?projectId=${activeProjectId}`, { method: 'POST' });
       fetchChangesToday(activeProjectId);
       showToast('Recorded modifications cleared for today.', 'success');
     } catch {
@@ -577,35 +608,155 @@ export default function App() {
           </div>
 
           {/* Database Synchronization Status Ribbon */}
-          <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs transition-all text-xs ${
+          <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm transition-all text-xs ${
             dbStatus.connected 
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
-              : 'bg-slate-50 border-slate-200 text-slate-800'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-950' 
+              : dbStatus.error 
+                ? 'bg-rose-50 border-rose-200 text-rose-950'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
           }`}>
             <div className="flex items-start gap-3">
-              <div className={`p-2 rounded-lg ${dbStatus.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-650'}`}>
+              <div className={`p-2 rounded-lg mt-0.5 ${
+                dbStatus.connected 
+                  ? 'bg-emerald-100 text-emerald-700' 
+                  : dbStatus.error
+                    ? 'bg-rose-100 text-rose-700'
+                    : 'bg-slate-200 text-slate-600'
+              }`}>
                 <div className="relative flex h-2.5 w-2.5">
                   {dbStatus.connected && (
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   )}
-                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dbStatus.connected ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    dbStatus.connected 
+                      ? 'bg-emerald-500' 
+                      : dbStatus.error 
+                        ? 'bg-rose-500' 
+                        : 'bg-slate-400'
+                  }`}></span>
                 </div>
               </div>
-              <div>
+              <div className="space-y-1">
                 <h4 className="font-extrabold uppercase tracking-wide text-[10px] mb-0.5 flex items-center gap-1.5">
                   Database Link Status: <strong className="underline">{dbStatus.mode}</strong>
                 </h4>
                 <p className="font-medium opacity-90 leading-relaxed max-w-[800px]">
                   {dbStatus.details}
                 </p>
+                {dbStatus.error && (
+                  <div className="mt-2.5 p-3 bg-white/80 backdrop-blur-xs border border-rose-150 rounded-lg text-[11px] font-mono whitespace-pre-wrap select-text text-rose-850 shadow-inner max-w-[850px] space-y-1">
+                    <div className="font-bold text-rose-900 border-b border-rose-100/60 pb-1 mb-1">
+                      ⚠️ Active Query / Schema Error:
+                    </div>
+                    <div><b className="text-rose-900">Message:</b> {dbStatus.error.message}</div>
+                    {dbStatus.error.code && <div><b className="text-rose-900">Code:</b> {dbStatus.error.code}</div>}
+                    {dbStatus.error.hint && <div><b className="text-rose-900">Hint:</b> {dbStatus.error.hint}</div>}
+                    {dbStatus.error.details && <div><b className="text-rose-900">Details:</b> {dbStatus.error.details}</div>}
+                  </div>
+                )}
               </div>
             </div>
             
             {!dbStatus.connected && (
               <div className="flex-shrink-0">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-extrabold text-slate-600">
-                  <span>Supabase Sync Offline</span>
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border rounded text-[10px] font-extrabold ${
+                  dbStatus.error ? 'border-rose-200 text-rose-600' : 'border-slate-200 text-slate-600'
+                }`}>
+                  <span>{dbStatus.error ? "Supabase Sync Failure" : "Supabase Sync Offline"}</span>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Supabase Dynamic Key Re-entry / Override Section */}
+          <div className="bg-slate-50 border border-slate-150 rounded-xl p-4 text-xs space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-black text-slate-800 uppercase tracking-wide">⚡ Dynamic Supabase Overrides</span>
+                { (typeof window !== 'undefined' && (localStorage.getItem('supabase_url_override') || localStorage.getItem('supabase_key_override'))) ? (
+                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded font-bold text-[9px] uppercase tracking-wider">Custom Override Active</span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded font-bold text-[9px] uppercase tracking-wider">Default Config</span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowSbConfig(!showSbConfig)}
+                className="px-3 py-1 bg-white hover:bg-slate-100 transition-colors border border-slate-200 rounded font-bold text-[11px] text-slate-700 shadow-xs cursor-pointer flex items-center gap-1"
+                id="toggle-supabase-credentials-btn"
+              >
+                {showSbConfig ? "Hide Config Panel ▲" : "Re-enter / Overrides Keys ▼"}
+              </button>
+            </div>
+
+            {showSbConfig && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-200 bg-white p-3.5 rounded-lg border border-slate-100">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 text-[10px] uppercase">
+                    Supabase Project URL (e.g. https://xxxxxx.supabase.co)
+                  </label>
+                  <input
+                    type="text"
+                    value={customSbUrl}
+                    onChange={(e) => setCustomSbUrl(e.target.value)}
+                    placeholder="Enter your Supabase URL"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] focus:outline-hidden focus:border-indigo-500"
+                    id="supabase-override-url-input"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 text-[10px] uppercase">
+                    Supabase Public anon API Key (SUPABASE_KEY)
+                  </label>
+                  <input
+                    type="password"
+                    value={customSbKey}
+                    onChange={(e) => setCustomSbKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] focus:outline-hidden focus:border-indigo-500"
+                    id="supabase-override-key-input"
+                  />
+                </div>
+                <div className="md:col-span-2 flex items-center justify-end gap-2.5 pt-1">
+                  {typeof window !== 'undefined' && (localStorage.getItem('supabase_url_override') || localStorage.getItem('supabase_key_override')) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        localStorage.removeItem('supabase_url_override');
+                        localStorage.removeItem('supabase_key_override');
+                        setCustomSbUrl('');
+                        setCustomSbKey('');
+                        showToast('Restored default workspace credentials', 'info');
+                        checkDbStatus();
+                        loadProjectsList();
+                      }}
+                      className="px-3.5 py-1.5 text-slate-650 hover:text-slate-850 hover:bg-slate-100 rounded text-[11px] font-bold border border-transparent transition-all cursor-pointer"
+                      id="reset-supabase-override-btn"
+                    >
+                      Clear & Use Defaults
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!customSbUrl.trim() || !customSbKey.trim()) {
+                        showToast('Both URL and Public anon key are required to override credentials.', 'info');
+                        return;
+                      }
+                      localStorage.setItem('supabase_url_override', customSbUrl.trim());
+                      localStorage.setItem('supabase_key_override', customSbKey.trim());
+                      showToast('Live Supabase overrides successfully activated! Querying connection...', 'success');
+                      checkDbStatus();
+                      loadProjectsList();
+                    }}
+                    className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded text-[11px] font-bold shadow-xs transition-all cursor-pointer hover:shadow-sm"
+                    id="save-supabase-override-btn"
+                  >
+                    Save & Test Connection
+                  </button>
+                </div>
+                <p className="md:col-span-2 text-[10px] text-slate-450 leading-relaxed font-medium">
+                  💡 <b>Security Info:</b> Overridden credentials are held securely in your local browser storage and never stored on our intermediate disk servers. When active, all data operations are routed directly to your configured Supabase database schema.
+                </p>
               </div>
             )}
           </div>

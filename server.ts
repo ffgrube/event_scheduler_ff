@@ -88,10 +88,30 @@ const FALLBACK_DEPARTMENTS: Department[] = [
   { code: 'MISC', name: 'misc', color: '#64748b', textColor: '#ffffff' }
 ];
 
+// Globally tracked last Supabase client error for diagnostics
+let lastSupabaseError: {
+  message: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+} | null = null;
+
 // Lazily initialized Supabase client
 let supabase: ReturnType<typeof createClient> | null = null;
 
-function getSupabaseClient() {
+function getSupabaseClient(req?: any) {
+  // Check request headers for client-side override keys first
+  const headerUrl = req?.headers?.["x-supabase-url"] as string;
+  const headerKey = req?.headers?.["x-supabase-key"] as string;
+
+  if (headerUrl && headerKey) {
+    try {
+      return createClient(headerUrl, headerKey);
+    } catch (e) {
+      console.error("Failed to construct header-overridden Supabase client:", e);
+    }
+  }
+
   if (supabase) return supabase;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_KEY;
@@ -102,7 +122,10 @@ function getSupabaseClient() {
   return supabase;
 }
 
-function isSupabaseConfigured(): boolean {
+function isSupabaseConfigured(req?: any): boolean {
+  const headerUrl = req?.headers?.["x-supabase-url"] as string;
+  const headerKey = req?.headers?.["x-supabase-key"] as string;
+  if (headerUrl && headerKey) return true;
   return !!(process.env.SUPABASE_URL && process.env.SUPABASE_KEY);
 }
 
@@ -150,8 +173,8 @@ function saveProjectsOnDisk(projects: Project[]) {
 }
 
 // Helper to Load Projects asynchronously from Supabase, in-memory, or static JSON disk
-async function loadProjects(): Promise<Project[]> {
-  const sbClient = getSupabaseClient();
+async function loadProjects(req?: any): Promise<Project[]> {
+  const sbClient = getSupabaseClient(req);
   if (sbClient) {
     try {
       const { data, error } = await (sbClient as any)
@@ -159,26 +182,38 @@ async function loadProjects(): Promise<Project[]> {
         .select("*");
       if (error) {
         console.error("Supabase load projects error, falling back to disk/memory:", error);
-      } else if (data && data.length > 0) {
-        const projectsFromDb = data.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          settings: p.settings || {},
-          departments: p.departments || [],
-          tasks: p.tasks || [],
-          changesToday: p.changesToday || p.changes_today || []
-        }));
-        _projectsMemoryCache = projectsFromDb;
-        saveProjectsOnDisk(projectsFromDb);
-        return projectsFromDb;
+        lastSupabaseError = {
+          message: error.message || "Unknown database error",
+          code: error.code || undefined,
+          details: error.details || undefined,
+          hint: error.hint || undefined
+        };
       } else {
-        console.log("Supabase table 'projects' is empty. Initializing defaults in Supabase...");
-        const initial = getInitialProjects();
-        await saveProjects(initial);
-        return initial;
+        lastSupabaseError = null; // Reset error state upon successful operation
+        if (data && data.length > 0) {
+          const projectsFromDb = data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            settings: p.settings || {},
+            departments: p.departments || [],
+            tasks: p.tasks || [],
+            changesToday: p.changesToday || p.changes_today || []
+          }));
+          _projectsMemoryCache = projectsFromDb;
+          saveProjectsOnDisk(projectsFromDb);
+          return projectsFromDb;
+        } else {
+          console.log("Supabase table 'projects' is empty. Initializing defaults in Supabase...");
+          const initial = getInitialProjects();
+          await saveProjects(initial, req);
+          return initial;
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Exception fetching projects from Supabase, using local fallback copy:", err);
+      lastSupabaseError = {
+        message: err?.message || String(err)
+      };
     }
   }
 
@@ -207,11 +242,11 @@ async function loadProjects(): Promise<Project[]> {
 }
 
 // Helper to Save Projects in Supabase, sync RAM cache & disk
-async function saveProjects(projects: Project[]) {
+async function saveProjects(projects: Project[], req?: any) {
   _projectsMemoryCache = projects;
   saveProjectsOnDisk(projects);
 
-  const sbClient = getSupabaseClient();
+  const sbClient = getSupabaseClient(req);
   if (sbClient) {
     try {
       for (const p of projects) {
@@ -229,10 +264,21 @@ async function saveProjects(projects: Project[]) {
           
         if (error) {
           console.error(`Error saving project '${p.id}' to Supabase:`, error);
+          lastSupabaseError = {
+            message: `Save error for '${p.id}': ${error.message || "Unknown error"}`,
+            code: error.code || undefined,
+            details: error.details || undefined,
+            hint: error.hint || undefined
+          };
+        } else {
+          lastSupabaseError = null; // Clear if we succeeded
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Exception saving projects list to Supabase:", err);
+      lastSupabaseError = {
+        message: `Exception saving database changes: ${err?.message || String(err)}`
+      };
     }
   }
 }
@@ -279,19 +325,40 @@ function flattenTasksList(tasksList: Task[]): Task[] {
 
 // DB Status check endpoint
 app.get("/api/db-status", (req, res) => {
-  const configured = isSupabaseConfigured();
+  const configured = isSupabaseConfigured(req);
+  const hasError = !!lastSupabaseError;
+  const connected = configured && !hasError;
+  
+  let mode = "Checking Database Status...";
+  let details = "";
+  
+  if (!configured) {
+    mode = "Local Ephemeral JSON File Fallback";
+    details = "Currently running with fallback system memory/local disk storage (due to missing SUPABASE_URL / SUPABASE_KEY). Configure environment variables in Settings to activate database storage.";
+  } else if (hasError) {
+    mode = "Supabase Connection Error";
+    if (lastSupabaseError?.code === "42P01") {
+      details = "The database table 'projects' is missing in your Supabase workspace schema. Please open the Supabase SQL Editor and execute the schema script inside `/SCHEMA.sql` to instantiate the table structure.";
+    } else {
+      details = `Supabase is configured but returned a PostgreSQL query error: "${lastSupabaseError?.message}". Please verify permissions, credentials, or table structure in your console.`;
+    }
+  } else {
+    mode = "Supabase Cloud Database";
+    details = "All scheduler lanes, tasks, and changelogs are synchronized in real-time with your live Supabase cloud workspace.";
+  }
+
   res.json({
-    connected: configured,
-    mode: configured ? "Supabase Cloud Database" : "Local Ephemeral JSON File Fallback",
-    details: configured
-      ? "All scheduler lanes, tasks, and changelogs are synchronized in real-time with your live Supabase cloud workspace."
-      : "Currently running with fallback system memory/local disk storage (due to missing SUPABASE_URL / SUPABASE_KEY). Configure environment variables in Settings to activate database storage."
+    connected,
+    configured,
+    mode,
+    details,
+    error: lastSupabaseError
   });
 });
 
 // Fetch list of projects with task/depts count (metadata style for active picker)
 app.get("/api/projects", async (req, res) => {
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const summaries = projects.map(p => ({
     id: p.id,
     name: p.name,
@@ -305,7 +372,7 @@ app.get("/api/projects", async (req, res) => {
 // Fetch a specific project's full details
 app.get("/api/projects/:id", async (req, res) => {
   const { id } = req.params;
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const project = projects.find(p => p.id === id);
   if (!project) {
     return res.status(404).json({ error: "Project not found" });
@@ -320,7 +387,7 @@ app.post("/api/projects", async (req, res) => {
     return res.status(400).json({ error: "id and name are required parameters." });
   }
 
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const index = projects.findIndex(p => p.id === id);
 
   if (index >= 0) {
@@ -341,14 +408,14 @@ app.post("/api/projects", async (req, res) => {
     });
   }
 
-  await saveProjects(projects);
+  await saveProjects(projects, req);
   res.json({ success: true, id });
 });
 
 // Delete specific project
 app.delete("/api/projects/:id", async (req, res) => {
   const { id } = req.params;
-  let projects = await loadProjects();
+  let projects = await loadProjects(req);
   const beforeCount = projects.length;
   projects = projects.filter(p => p.id !== id);
 
@@ -370,9 +437,9 @@ app.delete("/api/projects/:id", async (req, res) => {
     }];
   }
 
-  await saveProjects(projects);
+  await saveProjects(projects, req);
 
-  const sbClient = getSupabaseClient();
+  const sbClient = getSupabaseClient(req);
   if (sbClient) {
     try {
       await (sbClient as any).from("projects").delete().eq("id", id);
@@ -385,7 +452,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 // Fetch entire list of tasks for the selected project
 app.get("/api/tasks", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const project = projects.find(p => p.id === projectId) || projects[0];
   res.json(project?.tasks || []);
 });
@@ -394,7 +461,7 @@ app.get("/api/tasks", async (req, res) => {
 app.post("/api/tasks", async (req, res) => {
   const projectId = req.query.projectId as string;
   const newTasks = req.body as Task[];
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const projIdx = projects.findIndex(p => p.id === projectId);
   
   if (projIdx === -1) {
@@ -451,14 +518,14 @@ app.post("/api/tasks", async (req, res) => {
     project.changesToday = [...(project.changesToday || []), ...newChanges];
   }
 
-  await saveProjects(projects);
+  await saveProjects(projects, req);
   res.json({ success: true, count: newTasks.length });
 });
 
 // Fetch active changes for the selected project
 app.get("/api/changes", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const project = projects.find(p => p.id === projectId) || projects[0];
   res.json(project?.changesToday || []);
 });
@@ -466,12 +533,12 @@ app.get("/api/changes", async (req, res) => {
 // Wipe operational log history of the selected project
 app.post("/api/changes/reset", async (req, res) => {
   const projectId = req.query.projectId as string;
-  const projects = await loadProjects();
+  const projects = await loadProjects(req);
   const project = projects.find(p => p.id === projectId) || projects[0];
   
   if (project) {
     project.changesToday = [];
-    await saveProjects(projects);
+    await saveProjects(projects, req);
   }
   res.json({ success: true });
 });
