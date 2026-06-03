@@ -53,24 +53,9 @@ export default function App() {
   const isReadOnly = queryParams ? queryParams.get('mode') === 'view' : false;
   const queryProjectId = queryParams ? queryParams.get('project') : null;
   
-  // Custom Supabase Client Overrides State
-  const [customSbUrl, setCustomSbUrl] = useState<string>(() => typeof window !== 'undefined' ? localStorage.getItem('supabase_url_override') || '' : '');
-  const [customSbKey, setCustomSbKey] = useState<string>(() => typeof window !== 'undefined' ? localStorage.getItem('supabase_key_override') || '' : '');
-  const [showSbConfig, setShowSbConfig] = useState<boolean>(false);
-
-  // Dynamic request wrapper with local overrides
+  // Dynamic request wrapper
   const appFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const overrideUrl = typeof window !== 'undefined' ? localStorage.getItem('supabase_url_override') || '' : '';
-    const overrideKey = typeof window !== 'undefined' ? localStorage.getItem('supabase_key_override') || '' : '';
-    const headers = {
-      ...(init?.headers || {}),
-    } as any;
-    if (overrideUrl) headers['x-supabase-url'] = overrideUrl;
-    if (overrideKey) headers['x-supabase-key'] = overrideKey;
-    return fetch(input, {
-      ...init,
-      headers
-    });
+    return fetch(input, init);
   };
 
   const [projects, setProjects] = useState<any[]>([]);
@@ -668,98 +653,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Supabase Dynamic Key Re-entry / Override Section */}
-          <div className="bg-slate-50 border border-slate-150 rounded-xl p-4 text-xs space-y-3 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-black text-slate-800 uppercase tracking-wide">⚡ Dynamic Supabase Overrides</span>
-                { (typeof window !== 'undefined' && (localStorage.getItem('supabase_url_override') || localStorage.getItem('supabase_key_override'))) ? (
-                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded font-bold text-[9px] uppercase tracking-wider">Custom Override Active</span>
-                ) : (
-                  <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded font-bold text-[9px] uppercase tracking-wider">Default Config</span>
-                )}
-              </div>
-              <button
-                onClick={() => setShowSbConfig(!showSbConfig)}
-                className="px-3 py-1 bg-white hover:bg-slate-100 transition-colors border border-slate-200 rounded font-bold text-[11px] text-slate-700 shadow-xs cursor-pointer flex items-center gap-1"
-                id="toggle-supabase-credentials-btn"
-              >
-                {showSbConfig ? "Hide Config Panel ▲" : "Re-enter / Overrides Keys ▼"}
-              </button>
-            </div>
 
-            {showSbConfig && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-200 bg-white p-3.5 rounded-lg border border-slate-100">
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 text-[10px] uppercase">
-                    Supabase Project URL (e.g. https://xxxxxx.supabase.co)
-                  </label>
-                  <input
-                    type="text"
-                    value={customSbUrl}
-                    onChange={(e) => setCustomSbUrl(e.target.value)}
-                    placeholder="Enter your Supabase URL"
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] focus:outline-hidden focus:border-indigo-500"
-                    id="supabase-override-url-input"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 text-[10px] uppercase">
-                    Supabase Public anon API Key (SUPABASE_KEY)
-                  </label>
-                  <input
-                    type="password"
-                    value={customSbKey}
-                    onChange={(e) => setCustomSbKey(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] focus:outline-hidden focus:border-indigo-500"
-                    id="supabase-override-key-input"
-                  />
-                </div>
-                <div className="md:col-span-2 flex items-center justify-end gap-2.5 pt-1">
-                  {typeof window !== 'undefined' && (localStorage.getItem('supabase_url_override') || localStorage.getItem('supabase_key_override')) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        localStorage.removeItem('supabase_url_override');
-                        localStorage.removeItem('supabase_key_override');
-                        setCustomSbUrl('');
-                        setCustomSbKey('');
-                        showToast('Restored default workspace credentials', 'info');
-                        checkDbStatus();
-                        loadProjectsList();
-                      }}
-                      className="px-3.5 py-1.5 text-slate-650 hover:text-slate-850 hover:bg-slate-100 rounded text-[11px] font-bold border border-transparent transition-all cursor-pointer"
-                      id="reset-supabase-override-btn"
-                    >
-                      Clear & Use Defaults
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!customSbUrl.trim() || !customSbKey.trim()) {
-                        showToast('Both URL and Public anon key are required to override credentials.', 'info');
-                        return;
-                      }
-                      localStorage.setItem('supabase_url_override', customSbUrl.trim());
-                      localStorage.setItem('supabase_key_override', customSbKey.trim());
-                      showToast('Live Supabase overrides successfully activated! Querying connection...', 'success');
-                      checkDbStatus();
-                      loadProjectsList();
-                    }}
-                    className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded text-[11px] font-bold shadow-xs transition-all cursor-pointer hover:shadow-sm"
-                    id="save-supabase-override-btn"
-                  >
-                    Save & Test Connection
-                  </button>
-                </div>
-                <p className="md:col-span-2 text-[10px] text-slate-450 leading-relaxed font-medium">
-                  💡 <b>Security Info:</b> Overridden credentials are held securely in your local browser storage and never stored on our intermediate disk servers. When active, all data operations are routed directly to your configured Supabase database schema.
-                </p>
-              </div>
-            )}
-          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             

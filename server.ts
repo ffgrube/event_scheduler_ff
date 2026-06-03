@@ -99,19 +99,7 @@ let lastSupabaseError: {
 // Lazily initialized Supabase client
 let supabase: ReturnType<typeof createClient> | null = null;
 
-function getSupabaseClient(req?: any) {
-  // Check request headers for client-side override keys first
-  const headerUrl = req?.headers?.["x-supabase-url"] as string;
-  const headerKey = req?.headers?.["x-supabase-key"] as string;
-
-  if (headerUrl && headerKey) {
-    try {
-      return createClient(headerUrl, headerKey);
-    } catch (e) {
-      console.error("Failed to construct header-overridden Supabase client:", e);
-    }
-  }
-
+function getSupabaseClient() {
   if (supabase) return supabase;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_KEY;
@@ -122,10 +110,7 @@ function getSupabaseClient(req?: any) {
   return supabase;
 }
 
-function isSupabaseConfigured(req?: any): boolean {
-  const headerUrl = req?.headers?.["x-supabase-url"] as string;
-  const headerKey = req?.headers?.["x-supabase-key"] as string;
-  if (headerUrl && headerKey) return true;
+function isSupabaseConfigured(): boolean {
   return !!(process.env.SUPABASE_URL && process.env.SUPABASE_KEY);
 }
 
@@ -174,7 +159,7 @@ function saveProjectsOnDisk(projects: Project[]) {
 
 // Helper to Load Projects asynchronously from Supabase, in-memory, or static JSON disk
 async function loadProjects(req?: any): Promise<Project[]> {
-  const sbClient = getSupabaseClient(req);
+  const sbClient = getSupabaseClient();
   if (sbClient) {
     try {
       const { data, error } = await (sbClient as any)
@@ -246,7 +231,7 @@ async function saveProjects(projects: Project[], req?: any) {
   _projectsMemoryCache = projects;
   saveProjectsOnDisk(projects);
 
-  const sbClient = getSupabaseClient(req);
+  const sbClient = getSupabaseClient();
   if (sbClient) {
     try {
       for (const p of projects) {
@@ -325,7 +310,7 @@ function flattenTasksList(tasksList: Task[]): Task[] {
 
 // DB Status check endpoint
 app.get("/api/db-status", (req, res) => {
-  const configured = isSupabaseConfigured(req);
+  const configured = isSupabaseConfigured();
   const hasError = !!lastSupabaseError;
   const connected = configured && !hasError;
   
@@ -439,7 +424,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 
   await saveProjects(projects, req);
 
-  const sbClient = getSupabaseClient(req);
+  const sbClient = getSupabaseClient();
   if (sbClient) {
     try {
       await (sbClient as any).from("projects").delete().eq("id", id);
