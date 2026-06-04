@@ -165,7 +165,7 @@ export default function UnifiedTimeline({
   const flattenedRows = flattenTasks(filteredTasks);
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda'>('agenda');
+  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda' | 'csv'>('agenda');
   const [highContrastGrid, setHighContrastGrid] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [exportDeptFilters, setExportDeptFilters] = useState<string[]>(['ALL']);
@@ -226,6 +226,185 @@ export default function UnifiedTimeline({
       return null;
     };
     return find(tasks);
+  };
+
+  const generateBulkUploadCSV = () => {
+    try {
+      setIsExporting(true);
+      showToast('Compiling Gemini CSV upload template...', 'info');
+
+      // Flatten hierarchical tasks
+      const flat: Task[] = [];
+      const recurse = (item: any, parentCode?: string, parentDate?: string) => {
+        const virtual: Task = {
+          id: item.id,
+          code: item.code || parentCode || 'MISC',
+          date: item.date || parentDate || '',
+          time: item.time || '',
+          details: item.details || '',
+          status: item.status || 'Not Started',
+          durationDays: item.durationDays || 1,
+          dependencyTaskId: item.dependencyTaskId || undefined,
+          notes: item.notes || undefined,
+          startTime: item.startTime || undefined,
+          endTime: item.endTime || undefined
+        };
+        flat.push(virtual);
+        if (item.subtasks && item.subtasks.length > 0) {
+          item.subtasks.forEach((sub: any) => recurse(sub, virtual.code, virtual.date));
+        }
+      };
+      tasks.forEach(t => recurse(t));
+
+      // Filter tasks based on selected department filters in modal active state
+      let targetTasks = flat;
+      if (!exportDeptFilters.includes('ALL') && exportDeptFilters.length > 0) {
+        targetTasks = targetTasks.filter(t => exportDeptFilters.includes(t.code));
+      }
+      if (exportOnlyWithNotes) {
+        targetTasks = targetTasks.filter(t => t.notes);
+      }
+
+      // Group tasks by their details and time
+      const groups: { [key: string]: Task[] } = {};
+      for (const task of targetTasks) {
+        const detailsKey = task.details.trim().toLowerCase();
+        const timeKey = (task.time || '').trim().toLowerCase();
+        const key = `${detailsKey}|${timeKey}`;
+        if (!groups[key]) {
+          groups[key] = [];
+        }
+        groups[key].push(task);
+      }
+
+      const rowEntries: {
+        startDate: string;
+        time: string;
+        details: string;
+        durationDays: number;
+      }[] = [];
+
+      // Helper to generate spanned date strings for a single task
+      const getTaskDates = (task: Task): string[] => {
+        const dates: string[] = [];
+        if (!task.date) return [];
+        const start = new Date(task.date + 'T00:00:00');
+        const dur = task.durationDays || 1;
+        for (let i = 0; i < dur; i++) {
+          const nextDate = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+          const yyyy = nextDate.getFullYear();
+          const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(nextDate.getDate()).padStart(2, '0');
+          dates.push(`${yyyy}-${mm}-${dd}`);
+        }
+        return dates;
+      };
+
+      // Helper to check if two YYYY-MM-DD date strings are consecutive calendar dates
+      const isConsecutiveDay = (day1Str: string, day2Str: string): boolean => {
+        const d1 = new Date(day1Str + 'T00:00:00');
+        const d2 = new Date(day2Str + 'T00:00:00');
+        const diffTime = d2.getTime() - d1.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays === 1;
+      };
+
+      // Collapse and find consecutive blocks in each group
+      for (const key in groups) {
+        const groupTasks = groups[key];
+        
+        // Gather unique active dates spanned by all tasks in this group
+        const activeDatesSet = new Set<string>();
+        for (const task of groupTasks) {
+          const dates = getTaskDates(task);
+          dates.forEach(d => activeDatesSet.add(d));
+        }
+
+        // Sort dates chronologically
+        const sortedDates = Array.from(activeDatesSet).sort();
+
+        if (sortedDates.length === 0) continue;
+
+        // Find standard consecutive blocks
+        const blocks: string[][] = [];
+        let currentBlock: string[] = [sortedDates[0]];
+
+        for (let i = 1; i < sortedDates.length; i++) {
+          const prevDate = currentBlock[currentBlock.length - 1];
+          const currDate = sortedDates[i];
+          if (isConsecutiveDay(prevDate, currDate)) {
+            currentBlock.push(currDate);
+          } else {
+            blocks.push(currentBlock);
+            currentBlock = [currDate];
+          }
+        }
+        if (currentBlock.length > 0) {
+          blocks.push(currentBlock);
+        }
+
+        // Map blocks to row entities
+        for (const block of blocks) {
+          const startDate = block[0];
+          const durationDays = block.length;
+          
+          const originalTask = groupTasks.find(t => t.date === startDate) || groupTasks[0];
+          
+          rowEntries.push({
+            startDate,
+            time: originalTask.time || '',
+            details: originalTask.details,
+            durationDays
+          });
+        }
+      }
+
+      // Sort entries chronologically for export
+      rowEntries.sort((a, b) => {
+        const dateCompare = a.startDate.localeCompare(b.startDate);
+        if (dateCompare !== 0) return dateCompare;
+        return a.details.localeCompare(b.details);
+      });
+
+      // Build CSV String Compilation Phase
+      const header = "NUS,START_DATE,TIME,Task Details Description,DURATION_DAYS";
+      const csvRows = [header];
+
+      for (const entry of rowEntries) {
+        let escapedDetails = entry.details;
+        if (escapedDetails.includes(',') || escapedDetails.includes('"') || escapedDetails.includes('\n')) {
+          escapedDetails = `"${escapedDetails.replace(/"/g, '""')}"`;
+        }
+        csvRows.push(`NUS,${entry.startDate},${entry.time},${escapedDetails},${entry.durationDays}`);
+      }
+
+      const csvContent = csvRows.join('\n');
+
+      // Client-Side download handler
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+
+      const cleanProjectName = settings.projectName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+      link.href = url;
+      link.setAttribute('download', `${cleanProjectName}_bulk_upload_nus.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast('Bulk upload CSV exported successfully!', 'success');
+    } catch (csvErr) {
+      console.error('CSV compiler error:', csvErr);
+      showToast('Error crafting CSV file. Please inspect console logs.', 'info');
+    } finally {
+      setIsExporting(false);
+      setIsExportModalOpen(false);
+    }
   };
 
   const generateAgendaPDF = () => {
@@ -623,7 +802,9 @@ export default function UnifiedTimeline({
   };
 
   const handleExportToPDF = async () => {
-    if (exportFormat === 'agenda') {
+    if (exportFormat === 'csv') {
+      generateBulkUploadCSV();
+    } else if (exportFormat === 'agenda') {
       generateAgendaPDF();
     } else {
       handleExportGridToPDF(exportFormat);
@@ -1339,6 +1520,34 @@ export default function UnifiedTimeline({
                         </p>
                       </div>
                     </label>
+
+                    {/* OPTION 5: GEMINI BULK UPLOAD CSV */}
+                    <label 
+                      className={`flex items-start gap-3.5 p-3.5 border rounded-xl cursor-pointer transition-all select-none hover:bg-slate-50/50 ${
+                        exportFormat === 'csv' 
+                          ? 'border-indigo-600 bg-indigo-50/30 ring-1 ring-indigo-600/20' 
+                          : 'border-slate-200'
+                      }`}
+                    >
+                      <input 
+                        type="radio" 
+                        name="exportFormat" 
+                        value="csv" 
+                        checked={exportFormat === 'csv'}
+                        onChange={() => setExportFormat('csv')}
+                        className="mt-1 accent-indigo-650 cursor-pointer text-indigo-600"
+                        disabled={isExporting}
+                      />
+                      <div className="flex-grow">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold text-slate-800">Gemini Bulk Upload CSV (NUS Format)</span>
+                          <span className="text-[9px] font-black uppercase py-0.5 px-2 rounded-full bg-indigo-100 text-indigo-700">CSV Export</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
+                          Exports the active project schedule as a standard comma-delimited bulk load template with multi-day consecutive blocks grouped perfectly into single rows and department codes mapped to 'NUS'.
+                        </p>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
@@ -1470,7 +1679,7 @@ export default function UnifiedTimeline({
                 </div>
 
                 {/* Grid Maps Specific Extra Options */}
-                {exportFormat !== 'agenda' && (
+                {exportFormat !== 'agenda' && exportFormat !== 'csv' && (
                   <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex items-start gap-3">
                     <input 
                       type="checkbox" 
@@ -1515,12 +1724,12 @@ export default function UnifiedTimeline({
                   {isExporting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-white" />
-                      Rendering PDF file...
+                      {exportFormat === 'csv' ? 'Compiling CSV File...' : 'Rendering PDF file...'}
                     </>
                   ) : (
                     <>
                       <Download className="w-4 h-4" />
-                      Download Printable PDF
+                      {exportFormat === 'csv' ? 'Download Bulk Load CSV' : 'Download Printable PDF'}
                     </>
                   )}
                 </button>
