@@ -97,9 +97,15 @@ export default function BulkImport({ departments, onBulkImport, showToast, defau
 
       let code = parts[0].trim().toUpperCase();
       let date = parts[1].trim().replace(/\//g, '-'); // Normalize format slashes to hyphens
-      
+
+      // Skip CSV header line safely if user copies the whole CSV template back in
+      if (code === 'NUS' && (date.includes('_DATE') || date.includes('DATE') || date.includes('Start_Date') || date.includes('Start Date'))) {
+        return;
+      }
+
       let time = '';
       let details = '';
+      let durationDays = 1; // Default fallback to 1 day
 
       // Validate date match YYYY-MM-DD
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -113,29 +119,29 @@ export default function BulkImport({ departments, onBulkImport, showToast, defau
         code = 'GEN';
       }
 
-      // Handle variable columns
-      if (parts.length === 2) {
-        details = `Staging task [${code}]`;
-      } else if (parts.length === 3) {
-        const thirdPart = parts[2].trim();
-        // Check if third part is valid time format (HH:MM)
-        if (/^\d{1,2}:\d{2}$/.test(thirdPart)) {
-          time = thirdPart;
-          details = `Scheduled task [${code}]`;
+      // Check if the 3rd column is a valid time format
+      const thirdPart = parts[2] ? parts[2].trim() : '';
+      const isTime = /^\d{1,2}:\d{2}$/.test(thirdPart);
+
+      if (isTime || thirdPart === '') {
+        time = thirdPart;
+        
+        // If we have a 5th column and the last element is a valid number, parse it as duration
+        if (parts.length >= 5 && parts[parts.length - 1] && !isNaN(parseInt(parts[parts.length - 1].trim(), 10))) {
+          durationDays = Math.max(1, parseInt(parts[parts.length - 1].trim(), 10));
+          details = parts.slice(3, parts.length - 1).join(separator).trim();
         } else {
-          time = '';
-          details = thirdPart;
+          details = parts.length >= 4 ? parts.slice(3).join(separator).trim() : `Scheduled task [${code}]`;
         }
       } else {
-        // 4 or more columns
-        const thirdPart = parts[2].trim();
-        if (/^\d{1,2}:\d{2}$/.test(thirdPart) || thirdPart === '') {
-          time = thirdPart;
-          details = parts.slice(3).join(separator).trim();
+        // No valid time, treat 3rd column as details
+        time = '';
+        // If the last column of 4 or more is a number duration
+        if (parts.length >= 4 && parts[parts.length - 1] && !isNaN(parseInt(parts[parts.length - 1].trim(), 10))) {
+          durationDays = Math.max(1, parseInt(parts[parts.length - 1].trim(), 10));
+          details = parts.slice(2, parts.length - 1).join(separator).trim();
         } else {
-          // No valid time, treat Column 3 and onwards as the detailed text
-          time = '';
-          details = parts.slice(2).join(separator).trim();
+          details = parts.length >= 3 ? parts.slice(2).join(separator).trim() : `Staging task [${code}]`;
         }
       }
 
@@ -152,7 +158,8 @@ export default function BulkImport({ departments, onBulkImport, showToast, defau
         date,
         time,
         details: details || `Staging task details`,
-        status: 'Not Started'
+        status: 'Not Started',
+        durationDays
       };
 
       newTasks.push(newTask);
