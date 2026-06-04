@@ -47,12 +47,14 @@ var PROJECTS_FILE = import_path.default.join(DATA_DIR, "projects.json");
 var TASKS_FILE = import_path.default.join(DATA_DIR, "tasks.json");
 var CHANGES_FILE = import_path.default.join(DATA_DIR, "changes.json");
 var _projectsMemoryCache = null;
-try {
-  if (!import_fs.default.existsSync(DATA_DIR)) {
-    import_fs.default.mkdirSync(DATA_DIR, { recursive: true });
+if (!process.env.VERCEL) {
+  try {
+    if (!import_fs.default.existsSync(DATA_DIR)) {
+      import_fs.default.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (err) {
+    console.error("Data directory could not be created:", err);
   }
-} catch (err) {
-  console.error("Data directory could not be created:", err);
 }
 var FALLBACK_DEPARTMENTS = [
   { code: "ARC", name: "ARC production", color: "#0ea5e9", textColor: "#ffffff" },
@@ -75,14 +77,14 @@ function isSupabaseConfigured() {
 }
 function getInitialProjects() {
   let legacyTasks = [];
-  if (import_fs.default.existsSync(TASKS_FILE)) {
+  if (!process.env.VERCEL && import_fs.default.existsSync(TASKS_FILE)) {
     try {
       legacyTasks = JSON.parse(import_fs.default.readFileSync(TASKS_FILE, "utf-8"));
     } catch {
     }
   }
   let legacyChanges = [];
-  if (import_fs.default.existsSync(CHANGES_FILE)) {
+  if (!process.env.VERCEL && import_fs.default.existsSync(CHANGES_FILE)) {
     try {
       legacyChanges = JSON.parse(import_fs.default.readFileSync(CHANGES_FILE, "utf-8"));
     } catch {
@@ -106,6 +108,9 @@ function getInitialProjects() {
   ];
 }
 function saveProjectsOnDisk(projects) {
+  if (process.env.VERCEL) {
+    return;
+  }
   try {
     import_fs.default.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
   } catch (err) {
@@ -156,7 +161,7 @@ async function loadProjects(req) {
   if (_projectsMemoryCache && _projectsMemoryCache.length > 0) {
     return _projectsMemoryCache;
   }
-  if (import_fs.default.existsSync(PROJECTS_FILE)) {
+  if (!process.env.VERCEL && import_fs.default.existsSync(PROJECTS_FILE)) {
     try {
       const data = JSON.parse(import_fs.default.readFileSync(PROJECTS_FILE, "utf-8"));
       if (Array.isArray(data) && data.length > 0) {

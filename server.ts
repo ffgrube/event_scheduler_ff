@@ -73,13 +73,15 @@ const CHANGES_FILE = path.join(DATA_DIR, "changes.json");
 // In-Memory Database Fallback Cache
 let _projectsMemoryCache: Project[] | null = null;
 
-// Ensure Data Directory Exists
-try {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure Data Directory Exists - Only if not running on Vercel
+if (!process.env.VERCEL) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (err) {
+    console.error("Data directory could not be created:", err);
   }
-} catch (err) {
-  console.error("Data directory could not be created:", err);
 }
 
 // Global default departments for falling back
@@ -117,14 +119,14 @@ function isSupabaseConfigured(): boolean {
 // Helper to Load Projects Default Definitions
 function getInitialProjects(): Project[] {
   let legacyTasks: Task[] = [];
-  if (fs.existsSync(TASKS_FILE)) {
+  if (!process.env.VERCEL && fs.existsSync(TASKS_FILE)) {
     try {
       legacyTasks = JSON.parse(fs.readFileSync(TASKS_FILE, "utf-8"));
     } catch {}
   }
 
   let legacyChanges: ChangeLog[] = [];
-  if (fs.existsSync(CHANGES_FILE)) {
+  if (!process.env.VERCEL && fs.existsSync(CHANGES_FILE)) {
     try {
       legacyChanges = JSON.parse(fs.readFileSync(CHANGES_FILE, "utf-8"));
     } catch {}
@@ -150,6 +152,9 @@ function getInitialProjects(): Project[] {
 
 // Helper to persistent fallback file-save on local disk
 function saveProjectsOnDisk(projects: Project[]) {
+  if (process.env.VERCEL) {
+    return;
+  }
   try {
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf-8");
   } catch (err) {
@@ -206,7 +211,7 @@ async function loadProjects(req?: any): Promise<Project[]> {
     return _projectsMemoryCache;
   }
 
-  if (fs.existsSync(PROJECTS_FILE)) {
+  if (!process.env.VERCEL && fs.existsSync(PROJECTS_FILE)) {
     try {
       const data = JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8"));
       if (Array.isArray(data) && data.length > 0) {
