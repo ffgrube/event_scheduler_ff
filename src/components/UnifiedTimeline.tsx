@@ -749,7 +749,7 @@ export default function UnifiedTimeline({
 
       const captureScale = format === 'grid-a0' ? 2 : format === 'grid-a3' ? 1.5 : 1.2;
 
-      // 3. Complete Width Canvas Metrics
+      // 3. Complete Width Canvas Metrics utilizing element's full scrollable dimensions
       const canvas = await html2canvas(clonedElement, {
         width: clonedElement.scrollWidth,
         height: clonedElement.scrollHeight,
@@ -760,17 +760,72 @@ export default function UnifiedTimeline({
         backgroundColor: '#ffffff'
       });
 
-      // 4. Proportional PDF Canvas Stitching
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      
-      const doc = new jsPDF({
-        orientation: 'landscape',
-        unit: 'px',
-        format: [imgWidth, imgHeight] // Perfectly hugs the canvas dimensions
+      // 4. Proportional PDF Canvas Stitching with Dynamic Page Offsets Support Multi-page A0 Landscape slicing
+      let pageWidthMm = 1189;
+      let pageHeightMm = 841;
+      let pdfFormat: string = 'a0';
+
+      if (format === 'grid-a3') {
+        pageWidthMm = 420;
+        pageHeightMm = 297;
+        pdfFormat = 'a3';
+      } else if (format === 'grid-a4') {
+        pageWidthMm = 297;
+        pageHeightMm = 210;
+        pdfFormat = 'a4';
+      }
+
+      // Map scale from pixel width to mm width
+      const ratio = pageWidthMm / canvas.width;
+      const totalHeightMm = canvas.height * ratio;
+
+      // Extract all row elements in tbody to avoid breaking inside them
+      const rows = Array.from(clonedElement.querySelectorAll('tbody tr')) as HTMLElement[];
+      const rowRangesMm = rows.map(rEle => {
+        const rect = rEle.getBoundingClientRect();
+        const parentRect = clonedElement!.getBoundingClientRect();
+        const topPx = rect.top - parentRect.top;
+        const heightPx = rect.height;
+        return {
+          topMm: topPx * ratio,
+          bottomMm: (topPx + heightPx) * ratio
+        };
       });
 
-      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: pdfFormat
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      let currentYMm = 0;
+      let pageIndex = 0;
+
+      while (currentYMm < totalHeightMm) {
+        if (pageIndex > 0) {
+          doc.addPage(pdfFormat, 'l');
+        }
+
+        let nextSliceYMm = currentYMm + pageHeightMm;
+        
+        // If there's more content left that doesn't fit in standard pageHeightMm
+        if (nextSliceYMm < totalHeightMm) {
+          // Find any row that spans across the boundary nextSliceYMm
+          const crossingRow = rowRangesMm.find(r => r.topMm < nextSliceYMm && r.bottomMm > nextSliceYMm);
+          
+          if (crossingRow && crossingRow.topMm > currentYMm) {
+            // Settle slice boundary right at the top of the crossing row (break-inside-avoid)
+            nextSliceYMm = crossingRow.topMm;
+          }
+        }
+
+        // Draw the slice of the image by scaling and clipping we render with negative offset
+        doc.addImage(imgData, 'PNG', 0, -currentYMm, pageWidthMm, totalHeightMm);
+
+        currentYMm = nextSliceYMm;
+        pageIndex++;
+      }
       
       const cleanProjectName = settings.projectName.toLowerCase().replace(/[^a-zA-Z0-9_\-]+/g, '_');
       const formatSuffix = format.replace('grid-', '');
@@ -885,25 +940,25 @@ export default function UnifiedTimeline({
               {/* Left Side Static Headers with perfect width definitions */}
               <th 
                 style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
-                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-12 min-w-[48px] max-w-[48px] sticky top-0 left-0 z-40"
+                className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider border-r w-12 min-w-[48px] max-w-[48px] sticky top-0 left-0 z-40"
               >
                 Item
               </th>
               <th 
                 style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
-                className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider border-r w-16 min-w-[64px] max-w-[64px] sticky top-0 left-12 z-40"
+                className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider border-r w-16 min-w-[64px] max-w-[64px] sticky top-0 left-12 z-40"
               >
                 CODE
               </th>
               <th 
                 style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
-                className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-32 min-w-[128px] max-w-[128px] sticky top-0 left-28 z-40"
+                className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider border-r w-32 min-w-[128px] max-w-[128px] sticky top-0 left-28 z-40"
               >
                 Date
               </th>
               <th 
                 style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
-                className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider border-r w-[460px] min-w-[460px] sticky top-0 left-60 z-40"
+                className="px-4 py-2 text-left text-[10px] font-bold uppercase tracking-wider border-r w-[460px] min-w-[460px] sticky top-0 left-60 z-40"
               >
                 Task Details (Direct inline editing)
               </th>
@@ -925,7 +980,7 @@ export default function UnifiedTimeline({
                       width: `${colWidth}px`,
                       top: 0
                     }}
-                    className="text-center text-[10px] font-extrabold uppercase border-r py-3 px-2 tracking-wide align-top sticky top-0 z-30"
+                    className="text-center text-[10px] font-extrabold uppercase border-r py-2 px-1.5 tracking-wide align-top sticky top-0 z-30"
                   >
                     <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
                     <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
@@ -1033,8 +1088,11 @@ export default function UnifiedTimeline({
                     }}
                     style={{
                       borderBottom: '1px solid #e2e8f0',
-                      backgroundColor: isHovered ? '#f1f5f9' : '#ffffff'
+                      backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid'
                     }}
+                    className="break-inside-avoid"
                   >
                     {/* 1. Item Label */}
                     <td 
@@ -1042,7 +1100,7 @@ export default function UnifiedTimeline({
                         backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
                         borderRight: '1px solid #e2e8f0'
                       }}
-                      className="px-3 py-2 text-center text-[11px] font-mono font-bold text-slate-400 sticky left-0 z-20 w-12 min-w-[48px] max-w-[48px]"
+                      className="px-3 py-1.5 text-center text-[11px] font-mono font-bold text-slate-400 sticky left-0 z-20 w-12 min-w-[48px] max-w-[48px]"
                     >
                       {row.itemNumberLabel}
                     </td>
@@ -1053,7 +1111,7 @@ export default function UnifiedTimeline({
                         backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
                         borderRight: '1px solid #e2e8f0'
                       }}
-                      className="px-2 py-2 text-center sticky left-12 z-20 w-16 min-w-[64px] max-w-[64px]"
+                      className="px-2 py-1.5 text-center sticky left-12 z-20 w-16 min-w-[64px] max-w-[64px]"
                     >
                       {showReadOnlyLayout || row.type === 'subtask' ? (
                         <div
@@ -1286,7 +1344,7 @@ export default function UnifiedTimeline({
                               style={{
                                 borderRight: '1px solid #e2e8f0',
                                 backgroundColor: '#f0f4ff', // lightly highlighted active track line
-                                padding: '6px',
+                                padding: '4px',
                                 minWidth: `${colWidth * colSpan}px`,
                                 maxWidth: `${colWidth * colSpan}px`,
                                 width: `${colWidth * colSpan}px`
@@ -1295,7 +1353,7 @@ export default function UnifiedTimeline({
                             >
                               <div
                                 style={{ backgroundColor: getDeptColor(task.code) }}
-                                className="w-full min-h-[38px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1.5 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
+                                className="w-full min-h-[30px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
                                 title={`${task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
                               >
                                 <span className="text-[10px] tracking-widest uppercase font-black">{task.code}</span>
@@ -1336,7 +1394,7 @@ export default function UnifiedTimeline({
                                 maxWidth: `${colWidth}px`,
                                 width: `${colWidth}px`
                               }}
-                              className={`p-2 text-center transition-all relative h-[48px] ${
+                              className={`p-1.5 text-center transition-all relative h-[38px] ${
                                 showReadOnlyLayout ? 'cursor-default' : 'cursor-cell group'
                               }`}
                             >

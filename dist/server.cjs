@@ -35,7 +35,6 @@ module.exports = __toCommonJS(server_exports);
 var import_express = __toESM(require("express"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
-var import_vite = require("vite");
 var import_supabase_js = require("@supabase/supabase-js");
 var import_dotenv = __toESM(require("dotenv"), 1);
 import_dotenv.default.config();
@@ -424,7 +423,8 @@ async function boot() {
     return;
   }
   if (process.env.NODE_ENV !== "production") {
-    const vite = await (0, import_vite.createServer)({
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
     });
