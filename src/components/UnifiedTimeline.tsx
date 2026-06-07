@@ -740,8 +740,13 @@ export default function UnifiedTimeline({
       // Force clone wrapper width to hold the total table scrollable size plus margin buffer
       const targetWidth = measuredScrollWidth + 80;
       clonedElement.style.width = `${targetWidth}px`;
+      clonedElement.style.maxHeight = 'none';
+      clonedElement.style.overflow = 'visible';
+      
       if (clonedTableContainer) {
         clonedTableContainer.style.width = `${measuredScrollWidth}px`;
+        clonedTableContainer.style.maxHeight = 'none';
+        clonedTableContainer.style.height = 'auto';
       }
 
       // Brief delay to permit document element recalculation
@@ -760,7 +765,7 @@ export default function UnifiedTimeline({
         backgroundColor: '#ffffff'
       });
 
-      // 4. Proportional PDF Canvas Stitching with Dynamic Page Offsets Support Multi-page A0 Landscape slicing
+      // 4. Proportional PDF Canvas Slicing with Dynamic Page Offsets Support Multi-page A0 Landscape slicing
       let pageWidthMm = 1189;
       let pageHeightMm = 841;
       let pdfFormat: string = 'a0';
@@ -798,7 +803,6 @@ export default function UnifiedTimeline({
         format: pdfFormat
       });
 
-      const imgData = canvas.toDataURL('image/png');
       let currentYMm = 0;
       let pageIndex = 0;
 
@@ -820,8 +824,33 @@ export default function UnifiedTimeline({
           }
         }
 
-        // Draw the slice of the image by scaling and clipping we render with negative offset
-        doc.addImage(imgData, 'PNG', 0, -currentYMm, pageWidthMm, totalHeightMm);
+        const sliceHeightMm = Math.min(nextSliceYMm - currentYMm, totalHeightMm - currentYMm);
+        
+        // Convert mm coordinates back to pixel coordinates on the source canvas
+        const sourceYPx = currentYMm / ratio;
+        const sourceHPx = sliceHeightMm / ratio;
+
+        // Create a temporary canvas for this sliced page
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sourceHPx;
+
+        const sliceCtx = sliceCanvas.getContext('2d');
+        if (sliceCtx) {
+          // Fill pure white background
+          sliceCtx.fillStyle = '#ffffff';
+          sliceCtx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          
+          // Draw the sliced viewport portion
+          sliceCtx.drawImage(
+            canvas,
+            0, sourceYPx, canvas.width, sourceHPx, // source bounds
+            0, 0, sliceCanvas.width, sliceCanvas.height // target bounds
+          );
+        }
+
+        const imgData = sliceCanvas.toDataURL('image/png');
+        doc.addImage(imgData, 'PNG', 0, 0, pageWidthMm, sliceHeightMm);
 
         currentYMm = nextSliceYMm;
         pageIndex++;
