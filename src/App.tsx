@@ -471,11 +471,12 @@ export default function App() {
     else if (timeSlot === 'Evening') targetTime = '19:30';
 
     // Focus the task form and prefill values
+    const firstSelectedDept = selectedDeptFilter !== 'ALL' ? selectedDeptFilter.split(',')[0] : 'LOG';
     const newTaskDraft: Omit<Task, 'id'> = {
-      code: selectedDeptFilter !== 'ALL' ? selectedDeptFilter : 'LOG',
+      code: firstSelectedDept,
       date,
       time: targetTime,
-      details: `Quick ${selectedDeptFilter !== 'ALL' ? selectedDeptFilter : 'New'} Event Task`,
+      details: `Quick ${firstSelectedDept !== 'LOG' ? firstSelectedDept : 'New'} Event Task`,
       status: 'Not Started',
     };
 

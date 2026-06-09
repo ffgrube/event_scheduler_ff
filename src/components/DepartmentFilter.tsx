@@ -103,9 +103,11 @@ export default function DepartmentFilter({
     // Remove the department
     onUpdateDepartments(remaining);
 
-    // If currently selected filter was the deleted tag, reset filter to 'ALL'
-    if (selectedDeptFilter === codeToDelete) {
-      onSelectDeptFilter('ALL');
+    // If currently selected filter includes the deleted tag, clean it up
+    const activeFilters = selectedDeptFilter.split(',');
+    if (activeFilters.includes(codeToDelete)) {
+      const remainingFilters = activeFilters.filter(item => item !== codeToDelete);
+      onSelectDeptFilter(remainingFilters.length === 0 ? 'ALL' : remainingFilters.join(','));
     }
 
     // Reassign any tasks using this code to the fallback department
@@ -281,25 +283,42 @@ export default function DepartmentFilter({
             </form>
           </div>
         ) : (
-          /* --- FILTER MODE (STANDARD) --- */
+          /* --- FILTER MODE (STANDARD MULTI-SELECT) --- */
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 animate-fade-in">
             <button
               onClick={() => onSelectDeptFilter('ALL')}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all text-center border cursor-pointer select-none ${
-                selectedDeptFilter === 'ALL'
-                  ? 'bg-slate-900 border-slate-900 text-white'
+                selectedDeptFilter === 'ALL' || selectedDeptFilter.split(',').includes('ALL')
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
                   : 'border-slate-200 text-slate-600 hover:bg-slate-100 bg-slate-50'
               }`}
             >
               ALL DEPTS
             </button>
             {departments.map((dept) => {
-              const isSelected = selectedDeptFilter === dept.code;
+              const activeFilters = selectedDeptFilter.split(',').filter(item => item !== 'ALL');
+              const isSelected = activeFilters.includes(dept.code);
               const deptColor = dept.color || PDF_SAFE_COLORS[dept.code] || '#64748B';
+
+              const handleToggle = () => {
+                if (selectedDeptFilter === 'ALL' || selectedDeptFilter === '') {
+                  onSelectDeptFilter(dept.code);
+                } else {
+                  const currentList = selectedDeptFilter.split(',').filter(item => item !== 'ALL' && item !== '');
+                  if (currentList.includes(dept.code)) {
+                    const updated = currentList.filter(item => item !== dept.code);
+                    onSelectDeptFilter(updated.length === 0 ? 'ALL' : updated.join(','));
+                  } else {
+                    const updated = [...currentList, dept.code];
+                    onSelectDeptFilter(updated.join(','));
+                  }
+                }
+              };
+
               return (
                 <button
                   key={dept.code}
-                  onClick={() => onSelectDeptFilter(dept.code)}
+                  onClick={handleToggle}
                   className="px-2 py-1.5 rounded-lg text-xs font-bold transition-all border text-center flex items-center justify-center gap-1 cursor-pointer select-none"
                   style={{
                     backgroundColor: isSelected ? deptColor : '#f8fafc',
@@ -308,7 +327,7 @@ export default function DepartmentFilter({
                   }}
                 >
                   <span
-                    className="w-1.5 h-1.5 rounded-full"
+                    className="w-1.5 h-1.5 rounded-full animate-pulse-slow"
                     style={{ backgroundColor: isSelected ? '#ffffff' : deptColor }}
                   ></span>
                   {dept.code}

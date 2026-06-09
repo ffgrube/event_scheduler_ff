@@ -89,10 +89,22 @@ export default function UnifiedTimeline({
   // Generate the timeline dates list based on setup settings
   const dateRange = generateDateRange(settings.startDate, settings.endDate);
 
-  // Filter tasks based on active selection filter
+  // Filter tasks based on active selection filter or export modal filters during PDF generation
   const filteredTasks = tasks.filter(task => {
-    if (selectedDeptFilter === 'ALL') return true;
-    return task.code === selectedDeptFilter;
+    if (isGeneratingPDF) {
+      if (!exportDeptFilters.includes('ALL') && exportDeptFilters.length > 0) {
+        if (!exportDeptFilters.includes(task.code)) return false;
+      }
+      if (exportOnlyWithNotes) {
+        const hasNotes = !!task.notes || task.subtasks?.some(sub => !!sub.notes);
+        if (!hasNotes) return false;
+      }
+      return true;
+    }
+
+    const selectedDepts = selectedDeptFilter.split(',');
+    if (selectedDepts.includes('ALL')) return true;
+    return selectedDepts.includes(task.code);
   });
 
   // Structural subtasks rendering contract
@@ -1219,8 +1231,15 @@ export default function UnifiedTimeline({
                         )}
                         <div className="flex-grow flex items-center justify-between gap-1.5 min-w-0">
                           {showReadOnlyLayout ? (
-                            <div className={`w-full px-1.5 py-1 font-semibold text-slate-700 select-all leading-tight break-words ${isGeneratingPDF ? 'text-[10px]' : 'text-xs'}`} title={task.details}>
-                              {task.details}
+                            <div className="flex flex-col w-full">
+                              <div className={`w-full px-1.5 py-1 font-semibold text-slate-700 select-all leading-tight break-words ${isGeneratingPDF ? 'text-[10px]' : 'text-xs'}`} title={task.details}>
+                                {task.details}
+                              </div>
+                              {isGeneratingPDF && includeNotesInExport && task.notes && (
+                                <div className="px-1.5 py-0.5 text-[9px] text-indigo-650 bg-indigo-50/40 rounded border border-indigo-100/30 italic mt-1 max-w-[440px] break-words leading-normal">
+                                  📝 Notes: {task.notes}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <input
@@ -1407,7 +1426,7 @@ export default function UnifiedTimeline({
                                 // Clicking empty grid cell opens add form prefilled with date & department!
                                 const draftTask = {
                                   id: '',
-                                  code: selectedDeptFilter !== 'ALL' ? selectedDeptFilter : task.code,
+                                  code: (selectedDeptFilter !== 'ALL' && !selectedDeptFilter.includes(',')) ? selectedDeptFilter : task.code,
                                   date: dayDate,
                                   time: '',
                                   details: `New event task`,
