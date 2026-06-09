@@ -86,6 +86,17 @@ export default function UnifiedTimeline({
   const [isExporting, setIsExporting] = useState(false);
   const [colWidth, setColWidth] = useState<number>(105);
 
+  // States related to PDF export & filters, moved to top to prevent Temporal Dead Zone ReferenceError during filteredTasks calculation
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda' | 'csv'>('agenda');
+  const [highContrastGrid, setHighContrastGrid] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [exportDeptFilters, setExportDeptFilters] = useState<string[]>(['ALL']);
+  const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState<boolean>(false);
+  const [includeNotesInExport, setIncludeNotesInExport] = useState<boolean>(true);
+  const [exportOnlyWithNotes, setExportOnlyWithNotes] = useState<boolean>(false);
+  const [viewingNotesTask, setViewingNotesTask] = useState<Task | null>(null);
+
   // Generate the timeline dates list based on setup settings
   const dateRange = generateDateRange(settings.startDate, settings.endDate);
 
@@ -176,13 +187,6 @@ export default function UnifiedTimeline({
 
   const flattenedRows = flattenTasks(filteredTasks);
 
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda' | 'csv'>('agenda');
-  const [highContrastGrid, setHighContrastGrid] = useState(false);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [exportDeptFilters, setExportDeptFilters] = useState<string[]>(['ALL']);
-  const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState<boolean>(false);
-
   const handleToggleExportDept = (deptCode: string) => {
     if (deptCode === 'ALL') {
       setExportDeptFilters(['ALL']);
@@ -213,10 +217,6 @@ export default function UnifiedTimeline({
       .map(d => d.code)
       .join(', ');
   };
-
-  const [includeNotesInExport, setIncludeNotesInExport] = useState<boolean>(true);
-  const [exportOnlyWithNotes, setExportOnlyWithNotes] = useState<boolean>(false);
-  const [viewingNotesTask, setViewingNotesTask] = useState<Task | null>(null);
 
   const showReadOnlyLayout = isReadOnly || isGeneratingPDF;
 
