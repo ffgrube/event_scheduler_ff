@@ -1035,8 +1035,16 @@ export default function UnifiedTimeline({
                 Date
               </th>
               <th 
-                style={{ backgroundColor: '#1e293b', color: '#ffffff', borderColor: '#334155', top: 0 }}
-                className="px-4 py-2 text-left text-[10px] font-bold uppercase tracking-wider border-r w-[460px] min-w-[460px] sticky top-0 left-60 z-40"
+                style={{ 
+                  backgroundColor: '#1e293b', 
+                  color: '#ffffff', 
+                  borderColor: '#334155', 
+                  top: 0,
+                  width: '46ch',
+                  minWidth: '46ch',
+                  maxWidth: '46ch'
+                }}
+                className="px-4 py-2 text-left text-[10px] font-bold uppercase tracking-wider border-r sticky top-0 left-60 z-40"
               >
                 Task Details (Direct inline editing)
               </th>
@@ -1193,7 +1201,7 @@ export default function UnifiedTimeline({
                     >
                       {showReadOnlyLayout || row.type === 'subtask' ? (
                         <div
-                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
+                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } : { backgroundColor: getDeptColor(task.code) }}
                           className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center min-w-[48px] max-w-[56px] select-none mx-auto opacity-80"
                           title={task.code2 ? `Primary: ${task.code}, Secondary: ${task.code2}` : `Department: ${task.code}`}
                         >
@@ -1205,7 +1213,7 @@ export default function UnifiedTimeline({
                           onChange={(e) => {
                             onUpdateTask({ ...task, code: e.target.value }, true);
                           }}
-                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
+                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } : { backgroundColor: getDeptColor(task.code) }}
                           className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center cursor-pointer outline-none border-none min-w-[48px] max-w-[56px] appearance-none hover:scale-105 active:scale-95 transition-transform"
                         >
                           {departments.map((dept) => (
@@ -1253,9 +1261,12 @@ export default function UnifiedTimeline({
                     <td 
                       style={{
                         backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
-                        borderRight: '1px solid #e2e8f0'
+                        borderRight: '1px solid #e2e8f0',
+                        width: '46ch',
+                        minWidth: '46ch',
+                        maxWidth: '46ch'
                       }}
-                      className="px-2 py-1 sticky left-60 z-20 w-[460px] min-w-[460px] max-w-[460px]"
+                      className="px-2 py-1 sticky left-60 z-20"
                     >
                       <div className="flex items-center gap-1.5 w-full">
                         {/* Hierarchical list identation visual tree connectors */}
@@ -1274,7 +1285,7 @@ export default function UnifiedTimeline({
                                 {task.details}
                               </div>
                               {isGeneratingPDF && includeNotesInExport && task.notes && (
-                                <div className="px-1.5 py-0.5 text-[9px] text-indigo-650 bg-indigo-50/40 rounded border border-indigo-100/30 italic mt-1 max-w-[440px] break-words leading-normal">
+                                <div className="px-1.5 py-0.5 text-[9px] text-indigo-650 bg-indigo-50/40 rounded border border-indigo-100/30 italic mt-1 max-w-[40ch] break-words leading-normal">
                                   📝 Notes: {task.notes}
                                 </div>
                               )}
@@ -1438,7 +1449,7 @@ export default function UnifiedTimeline({
                               className="text-center align-middle transition-all relative cursor-pointer"
                             >
                               <div
-                                style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
+                                style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } : { backgroundColor: getDeptColor(task.code) }}
                                 className="w-full min-h-[30px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
                                 title={`${task.code2 ? `${task.code} / ${task.code2}` : task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
                               >
@@ -1925,12 +1936,12 @@ export default function UnifiedTimeline({
               {/* Header Banner with Dept Color Accent */}
               <div 
                 className="h-2 w-full" 
-                style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)}, ${getDeptColor(viewingNotesTask.code2)})` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}
+                style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)} 50%, ${getDeptColor(viewingNotesTask.code2)} 50%)` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}
               />
               
               <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full text-white inline-block mb-1.5" style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)}, ${getDeptColor(viewingNotesTask.code2)})` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}>
+                 <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full text-white inline-block mb-1.5" style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)} 50%, ${getDeptColor(viewingNotesTask.code2)} 50%)` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}>
                     Department {viewingNotesTask.code2 ? `${viewingNotesTask.code} / ${viewingNotesTask.code2}` : viewingNotesTask.code}
                   </span>
                   <h3 className="text-sm font-black text-slate-850 uppercase tracking-tight flex items-center gap-1.5 leading-tight">

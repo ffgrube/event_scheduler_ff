@@ -956,49 +956,36 @@ export default function App() {
             </div>
           )}
 
-          {/* Row 2: Left Input Form & Main Interactive Spreadsheet Timeline */}
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+          {/* Row 2: Top Input Form & Bulk Import + Main Interactive Spreadsheet Timeline */}
+          <div className="space-y-6">
             
-            {/* Form Task Addition - Side Box */}
+            {/* Form Task Addition & Bulk Uploader - Top Row */}
             {!isReadOnly && (
-              <div className="xl:col-span-1 space-y-4">
-                <TaskForm 
-                  departments={departments}
-                  onSubmit={handleFormSubmit}
-                  editingTask={editingTask}
-                  onCancelEdit={() => setEditingTask(null)}
-                  defaultDate={settings.startDate}
-                  allTasks={tasks}
-                />
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <div className="lg:col-span-7 xl:col-span-8">
+                  <TaskForm 
+                    departments={departments}
+                    onSubmit={handleFormSubmit}
+                    editingTask={editingTask}
+                    onCancelEdit={() => setEditingTask(null)}
+                    defaultDate={settings.startDate}
+                    allTasks={tasks}
+                  />
+                </div>
 
-                <BulkImport 
-                  departments={departments}
-                  onBulkImport={handleBulkImport}
-                  showToast={showToast}
-                  defaultDate={settings.startDate}
-                />
-
-                {/* Documentation Helper */}
-                <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-5 shadow-sm space-y-3 border border-indigo-950">
-                  <h4 className="text-xs font-extrabold tracking-widest text-indigo-300 flex items-center gap-1.5 uppercase">
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    Time-Slot Spreadsheet Help
-                  </h4>
-                  <p className="text-[11px] leading-relaxed text-indigo-150 font-medium font-sans">
-                    Our responsive staging grid replicates professional live event workflow charts. Tasks are structured sequentially by date and time automatically upon entry.
-                  </p>
-                  <ul className="text-[11px] space-y-1.5 text-indigo-200 list-disc list-inside col-span-1">
-                    <li>Create prep rows with June/prior dates.</li>
-                    <li>Enter active show dates inside the July span.</li>
-                    <li>Leave time blank to span ALL DAY slots on the grid.</li>
-                    <li>Click any empty grid square to quickly scheduler a task draft.</li>
-                  </ul>
+                <div className="lg:col-span-5 xl:col-span-4">
+                  <BulkImport 
+                    departments={departments}
+                    onBulkImport={handleBulkImport}
+                    showToast={showToast}
+                    defaultDate={settings.startDate}
+                  />
                 </div>
               </div>
             )}
 
-            {/* Master Unified Spreadsheet View - Main View */}
-            <div className={isReadOnly ? "xl:col-span-4" : "xl:col-span-3"}>
+            {/* Master Unified Spreadsheet View - Main View (Full Width) */}
+            <div className="w-full">
               <UnifiedTimeline 
                 tasks={tasks}
                 settings={settings}
