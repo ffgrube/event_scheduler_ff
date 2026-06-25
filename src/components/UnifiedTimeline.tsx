@@ -88,7 +88,8 @@ export default function UnifiedTimeline({
 
   // States related to PDF export & filters, moved to top to prevent Temporal Dead Zone ReferenceError during filteredTasks calculation
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a3' | 'grid-a4' | 'agenda' | 'csv'>('agenda');
+  const [exportFormat, setExportFormat] = useState<'grid-a0' | 'grid-a0-portrait' | 'grid-a3' | 'grid-a4' | 'agenda'>('agenda');
+  const [exportPortraitPeriodIndex, setExportPortraitPeriodIndex] = useState<number>(0);
   const [highContrastGrid, setHighContrastGrid] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [exportDeptFilters, setExportDeptFilters] = useState<string[]>(['ALL']);
@@ -98,13 +99,35 @@ export default function UnifiedTimeline({
   const [viewingNotesTask, setViewingNotesTask] = useState<Task | null>(null);
 
   // Generate the timeline dates list based on setup settings
-  const dateRange = generateDateRange(settings.startDate, settings.endDate);
+  const originalDateRange = generateDateRange(settings.startDate, settings.endDate);
+
+  // Generate the 10-day periods for A0 Portrait mode if originalDateRange > 10
+  const portraitPeriods: { startIndex: number; endIndex: number; label: string }[] = [];
+  if (originalDateRange.length > 10) {
+    for (let i = 0; i < originalDateRange.length; i += 10) {
+      const end = Math.min(i + 10, originalDateRange.length);
+      const startDayLabel = formatDateShort(originalDateRange[i]);
+      const endDayLabel = formatDateShort(originalDateRange[end - 1]);
+      portraitPeriods.push({
+        startIndex: i,
+        endIndex: end,
+        label: `Days ${i + 1} - ${end} (${startDayLabel} - ${endDayLabel})`
+      });
+    }
+  }
+
+  const activePortraitPeriodIndex = (exportPortraitPeriodIndex < portraitPeriods.length) ? exportPortraitPeriodIndex : 0;
+
+  const dateRange = (isGeneratingPDF && exportFormat === 'grid-a0-portrait')
+    ? originalDateRange.slice(activePortraitPeriodIndex * 10, (activePortraitPeriodIndex * 10) + 10)
+    : originalDateRange;
 
   // Filter tasks based on active selection filter or export modal filters during PDF generation
   const filteredTasks = tasks.filter(task => {
     if (isGeneratingPDF) {
       if (!exportDeptFilters.includes('ALL') && exportDeptFilters.length > 0) {
-        if (!exportDeptFilters.includes(task.code)) return false;
+        const hasMatch = exportDeptFilters.includes(task.code) || (task.code2 && exportDeptFilters.includes(task.code2));
+        if (!hasMatch) return false;
       }
       if (exportOnlyWithNotes) {
         const hasNotes = !!task.notes || task.subtasks?.some(sub => !!sub.notes);
@@ -115,7 +138,7 @@ export default function UnifiedTimeline({
 
     const selectedDepts = selectedDeptFilter.split(',');
     if (selectedDepts.includes('ALL')) return true;
-    return selectedDepts.includes(task.code);
+    return selectedDepts.includes(task.code) || (task.code2 && selectedDepts.includes(task.code2));
   });
 
   // Structural subtasks rendering contract
@@ -154,6 +177,7 @@ export default function UnifiedTimeline({
         const virtualTask: Task = {
           id: subtaskVal.id,
           code: parentTask?.code || 'GEN',
+          code2: parentTask?.code2,
           date: parentTask?.date || '',
           time: subtaskVal.time || '',
           details: subtaskVal.details || '',
@@ -521,13 +545,13 @@ export default function UnifiedTimeline({
         };
 
         const dayFlattened: { task: Task; prefix: string; depth: number }[] = [];
-        const flatRecurse = (item: any, depth: number, parentCode: string) => {
+        const flatRecurse = (item: any, depth: number, parentCode: string, parentCode2?: string) => {
           // Skip if we want only tasks with notes, and this subitem does not have notes
           if (exportOnlyWithNotes && !item.notes) {
             // But still recurse subtasks to check them
             if (item.subtasks && item.subtasks.length > 0) {
               item.subtasks.forEach((sub: any) => {
-                flatRecurse(sub, depth + 1, parentCode);
+                flatRecurse(sub, depth + 1, parentCode, parentCode2);
               });
             }
             return;
@@ -537,13 +561,14 @@ export default function UnifiedTimeline({
             dayFlattened.push({ task: item, prefix: '', depth: 0 });
             if (item.subtasks && item.subtasks.length > 0) {
               item.subtasks.forEach((sub: any) => {
-                flatRecurse(sub, depth + 1, item.code);
+                flatRecurse(sub, depth + 1, item.code, item.code2);
               });
             }
           } else {
             const virtual: Task = {
               id: item.id,
               code: parentCode,
+              code2: parentCode2,
               date: dayDate,
               time: item.time || '',
               details: item.details || '',
@@ -558,14 +583,14 @@ export default function UnifiedTimeline({
             dayFlattened.push({ task: virtual, prefix: '   ', depth });
             if (item.subtasks && item.subtasks.length > 0) {
               item.subtasks.forEach((nestedSub: any) => {
-                flatRecurse(nestedSub, depth + 1, parentCode);
+                flatRecurse(nestedSub, depth + 1, parentCode, parentCode2);
               });
             }
           }
         };
 
         dayTasks.forEach((task) => {
-          flatRecurse(task, 0, task.code);
+          flatRecurse(task, 0, task.code, task.code2);
         });
 
         dayFlattened.forEach(({ task, depth }) => {
@@ -591,7 +616,8 @@ export default function UnifiedTimeline({
           doc.setFont('Helvetica', 'bold');
           doc.setFontSize(9);
           doc.setTextColor(r, g, b);
-          doc.text(`[${task.code}]`, marginX + 8 + (depth * 4), cursorY + 3.5);
+          const displayLabel = task.code2 ? `[${task.code}/${task.code2}]` : `[${task.code}]`;
+          doc.text(displayLabel, marginX + 8 + (depth * 4), cursorY + 3.5);
 
           // Slot Label
           doc.setFont('Helvetica', 'bold');
@@ -677,7 +703,7 @@ export default function UnifiedTimeline({
     }
   };
 
-  const handleExportGridToPDF = async (format: 'grid-a0' | 'grid-a3' | 'grid-a4') => {
+  const handleExportGridToPDF = async (format: 'grid-a0' | 'grid-a0-portrait' | 'grid-a3' | 'grid-a4') => {
     const container = document.getElementById('unified-timeline-panel');
     if (!container) return;
 
@@ -685,6 +711,7 @@ export default function UnifiedTimeline({
     setIsGeneratingPDF(true); // Redraw timeline layout into safe high-fidelity print state
     const sizeLabels = {
       'grid-a0': 'A0 Landscape (Poster Size / Blueprint)',
+      'grid-a0-portrait': 'A0 Portrait (Poster Size / Blueprint Cap)',
       'grid-a3': 'A3 Landscape (Standard Event Binder)',
       'grid-a4': 'A4 Landscape (Compact Ledger Size)'
     };
@@ -764,7 +791,7 @@ export default function UnifiedTimeline({
       // Brief delay to permit document element recalculation
       await new Promise((resolve) => setTimeout(resolve, 400));
 
-      const captureScale = format === 'grid-a0' ? 2 : format === 'grid-a3' ? 1.5 : 1.2;
+      const captureScale = (format === 'grid-a0' || format === 'grid-a0-portrait') ? 2 : format === 'grid-a3' ? 1.5 : 1.2;
 
       // 3. Complete Width Canvas Metrics utilizing element's full scrollable dimensions
       const canvas = await html2canvas(clonedElement, {
@@ -781,15 +808,23 @@ export default function UnifiedTimeline({
       let pageWidthMm = 1189;
       let pageHeightMm = 841;
       let pdfFormat: string = 'a0';
+      let orientation: 'landscape' | 'portrait' = 'landscape';
 
       if (format === 'grid-a3') {
         pageWidthMm = 420;
         pageHeightMm = 297;
         pdfFormat = 'a3';
+        orientation = 'landscape';
       } else if (format === 'grid-a4') {
         pageWidthMm = 297;
         pageHeightMm = 210;
         pdfFormat = 'a4';
+        orientation = 'landscape';
+      } else if (format === 'grid-a0-portrait') {
+        pageWidthMm = 841;
+        pageHeightMm = 1189;
+        pdfFormat = 'a0';
+        orientation = 'portrait';
       }
 
       // Map scale from pixel width to mm width
@@ -810,7 +845,7 @@ export default function UnifiedTimeline({
       });
 
       const doc = new jsPDF({
-        orientation: 'landscape',
+        orientation: orientation,
         unit: 'mm',
         format: pdfFormat
       });
@@ -820,7 +855,7 @@ export default function UnifiedTimeline({
 
       while (currentYMm < totalHeightMm) {
         if (pageIndex > 0) {
-          doc.addPage(pdfFormat, 'l');
+          doc.addPage(pdfFormat, orientation === 'portrait' ? 'p' : 'l');
         }
 
         let nextSliceYMm = currentYMm + pageHeightMm;
@@ -898,9 +933,7 @@ export default function UnifiedTimeline({
   };
 
   const handleExportToPDF = async () => {
-    if (exportFormat === 'csv') {
-      generateBulkUploadCSV();
-    } else if (exportFormat === 'agenda') {
+    if (exportFormat === 'agenda') {
       generateAgendaPDF();
     } else {
       handleExportGridToPDF(exportFormat);
@@ -916,12 +949,16 @@ export default function UnifiedTimeline({
             <span className="text-xs font-black tracking-widest text-indigo-600 uppercase">OFFICIAL PRODUCTION GANTT BLUEPRINT</span>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight mt-1">{settings.projectName}</h1>
             <p className="text-xs font-semibold text-slate-500 mt-2 flex items-center gap-1.5 font-mono">
-              Timeline Span: {settings.startDate} to {settings.endDate} ({dateRange.length} Days)
+              Timeline Span: {exportFormat === 'grid-a0-portrait' && originalDateRange.length > 10 
+                ? `${dateRange[0]} to ${dateRange[dateRange.length - 1]} (${dateRange.length} Days / Selected Period)` 
+                : `${settings.startDate} to ${settings.endDate} (${dateRange.length} Days)`}
             </p>
           </div>
           <div className="text-right">
             <span className="text-base font-extrabold text-slate-800 uppercase tracking-tight font-sans">PRODUCTION OFFICE</span>
-            <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase font-mono">GANTT MAP • LANDSCAPE VIEW</div>
+            <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase font-mono">
+              {exportFormat === 'grid-a0-portrait' ? 'GANTT MAP • PORTRAIT VIEW' : 'GANTT MAP • LANDSCAPE VIEW'}
+            </div>
           </div>
         </div>
       </div>
@@ -1156,10 +1193,11 @@ export default function UnifiedTimeline({
                     >
                       {showReadOnlyLayout || row.type === 'subtask' ? (
                         <div
-                          style={{ backgroundColor: getDeptColor(task.code) }}
+                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
                           className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center min-w-[48px] max-w-[56px] select-none mx-auto opacity-80"
+                          title={task.code2 ? `Primary: ${task.code}, Secondary: ${task.code2}` : `Department: ${task.code}`}
                         >
-                          {task.code}
+                          {task.code2 ? `${task.code}/${task.code2}` : task.code}
                         </div>
                       ) : (
                         <select
@@ -1167,7 +1205,7 @@ export default function UnifiedTimeline({
                           onChange={(e) => {
                             onUpdateTask({ ...task, code: e.target.value }, true);
                           }}
-                          style={{ backgroundColor: getDeptColor(task.code) }}
+                          style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
                           className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white text-center cursor-pointer outline-none border-none min-w-[48px] max-w-[56px] appearance-none hover:scale-105 active:scale-95 transition-transform"
                         >
                           {departments.map((dept) => (
@@ -1400,11 +1438,11 @@ export default function UnifiedTimeline({
                               className="text-center align-middle transition-all relative cursor-pointer"
                             >
                               <div
-                                style={{ backgroundColor: getDeptColor(task.code) }}
+                                style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)}, ${getDeptColor(task.code2)})` } : { backgroundColor: getDeptColor(task.code) }}
                                 className="w-full min-h-[30px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
-                                title={`${task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
+                                title={`${task.code2 ? `${task.code} / ${task.code2}` : task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
                               >
-                                <span className="text-[10px] tracking-widest uppercase font-black">{task.code}</span>
+                                <span className="text-[10px] tracking-widest uppercase font-black">{task.code2 ? `${task.code}/${task.code2}` : task.code}</span>
                                 <span className="text-[9px] opacity-90 mt-0.5 font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                                   {task.time || 'All Day'}
                                 </span>
@@ -1627,33 +1665,60 @@ export default function UnifiedTimeline({
                       </div>
                     </label>
 
-                    {/* OPTION 5: GEMINI BULK UPLOAD CSV */}
-                    <label 
-                      className={`flex items-start gap-3.5 p-3.5 border rounded-xl cursor-pointer transition-all select-none hover:bg-slate-50/50 ${
-                        exportFormat === 'csv' 
+                    {/* OPTION 5: PORTRAIT A0 GRID MAP */}
+                    <div 
+                      className={`flex flex-col gap-2.5 p-3.5 border rounded-xl cursor-pointer transition-all ${
+                        exportFormat === 'grid-a0-portrait' 
                           ? 'border-indigo-600 bg-indigo-50/30 ring-1 ring-indigo-600/20' 
-                          : 'border-slate-200'
+                          : 'border-slate-200 hover:bg-slate-50/50'
                       }`}
+                      onClick={() => !isExporting && setExportFormat('grid-a0-portrait')}
                     >
-                      <input 
-                        type="radio" 
-                        name="exportFormat" 
-                        value="csv" 
-                        checked={exportFormat === 'csv'}
-                        onChange={() => setExportFormat('csv')}
-                        className="mt-1 accent-indigo-650 cursor-pointer text-indigo-600"
-                        disabled={isExporting}
-                      />
-                      <div className="flex-grow">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-extrabold text-slate-800">Gemini Bulk Upload CSV (NUS Format)</span>
-                          <span className="text-[9px] font-black uppercase py-0.5 px-2 rounded-full bg-indigo-100 text-indigo-700">CSV Export</span>
+                      <div className="flex items-start gap-3.5 select-none">
+                        <input 
+                          type="radio" 
+                          name="exportFormat" 
+                          value="grid-a0-portrait" 
+                          checked={exportFormat === 'grid-a0-portrait'}
+                          onChange={() => setExportFormat('grid-a0-portrait')}
+                          className="mt-1 accent-indigo-650 cursor-pointer text-indigo-600"
+                          disabled={isExporting}
+                        />
+                        <div className="flex-grow">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold text-slate-800">Poster Blueprint Planner (A0 Portrait)</span>
+                            <span className="text-[9px] font-black uppercase py-0.5 px-2 rounded-full bg-blue-100 text-blue-700">A0 Portrait (10-Day Cap)</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
+                            Displays the schedule in a vertical poster layout. Outputs high-resolution vector assets limited strictly to a 10-day period of cumulative event duration.
+                          </p>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
-                          Exports the active project schedule as a standard comma-delimited bulk load template with multi-day consecutive blocks grouped perfectly into single rows and department codes mapped to 'NUS'.
-                        </p>
                       </div>
-                    </label>
+
+                      {/* Period Selection dropdown (only displayed if exportFormat is selected and there are > 10 days) */}
+                      {exportFormat === 'grid-a0-portrait' && originalDateRange.length > 10 && (
+                        <div 
+                          className="mt-2.5 pt-2.5 border-t border-slate-200/60 flex flex-col gap-2"
+                          onClick={(e) => e.stopPropagation()} // Prevent clicking parent from toggling or closing
+                        >
+                          <label className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">
+                            Choose 10-Day Export Period:
+                          </label>
+                          <select
+                            value={exportPortraitPeriodIndex}
+                            onChange={(e) => setExportPortraitPeriodIndex(Number(e.target.value))}
+                            disabled={isExporting}
+                            className="w-full bg-white border border-slate-250 text-xs font-semibold text-slate-700 rounded-lg px-3 py-2 outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 cursor-pointer"
+                          >
+                            {portraitPeriods.map((period, index) => (
+                              <option key={index} value={index}>
+                                {period.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1860,13 +1925,13 @@ export default function UnifiedTimeline({
               {/* Header Banner with Dept Color Accent */}
               <div 
                 className="h-2 w-full" 
-                style={{ backgroundColor: getDeptColor(viewingNotesTask.code) }}
+                style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)}, ${getDeptColor(viewingNotesTask.code2)})` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}
               />
               
               <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
                 <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full text-white inline-block mb-1.5" style={{ backgroundColor: getDeptColor(viewingNotesTask.code) }}>
-                    Department {viewingNotesTask.code}
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full text-white inline-block mb-1.5" style={viewingNotesTask.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(viewingNotesTask.code)}, ${getDeptColor(viewingNotesTask.code2)})` } : { backgroundColor: getDeptColor(viewingNotesTask.code) }}>
+                    Department {viewingNotesTask.code2 ? `${viewingNotesTask.code} / ${viewingNotesTask.code2}` : viewingNotesTask.code}
                   </span>
                   <h3 className="text-sm font-black text-slate-850 uppercase tracking-tight flex items-center gap-1.5 leading-tight">
                     <FileText className="w-4 h-4 text-indigo-600" />

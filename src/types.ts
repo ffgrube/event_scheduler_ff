@@ -15,6 +15,7 @@ export interface Department {
 export interface Task {
   id: string;
   code: string; // references Department.code
+  code2?: string; // Optional secondary department code, references Department.code
   date: string; // YYYY-MM-DD
   time: string; // HH:MM, empty means "All Day"
   details: string;

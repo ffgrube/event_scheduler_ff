@@ -18,6 +18,7 @@ interface TaskFormProps {
 
 export default function TaskForm({ departments, onSubmit, editingTask, onCancelEdit, defaultDate, allTasks = [] }: TaskFormProps) {
   const [code, setCode] = useState('LOG');
+  const [code2, setCode2] = useState<string | undefined>(undefined);
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState('');
   const [details, setDetails] = useState('');
@@ -33,6 +34,7 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
   useEffect(() => {
     if (editingTask) {
       setCode(editingTask.code);
+      setCode2(editingTask.code2);
       setDate(editingTask.date);
       setTime(editingTask.time || '');
       setDetails(editingTask.details);
@@ -52,6 +54,7 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
       setNotes('');
       setStartTime('');
       setEndTime('');
+      setCode2(undefined);
     }
   }, [editingTask]);
 
@@ -98,6 +101,7 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
     onSubmit({
       id: editingTask?.id,
       code,
+      code2,
       date,
       time,
       details: details.trim(),
@@ -144,31 +148,77 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
 
       <form id="task-entry-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Quick Department Tags */}
-        <div id="dept-tag-section" className="space-y-2">
-          <span className="block text-xs font-semibold text-slate-500">Department Code / Tag</span>
-          <div className="flex flex-wrap gap-1.5 p-1 bg-slate-50 border border-slate-100 rounded-lg">
-            {departments.map((dept) => {
-              const isSelected = code === dept.code;
-              return (
-                <button
-                  key={dept.code}
-                  type="button"
-                  onClick={() => setCode(dept.code)}
-                  style={{
-                    backgroundColor: isSelected ? dept.color : 'transparent',
-                    color: isSelected ? '#ffffff' : '#475569',
-                    borderColor: isSelected ? dept.color : 'transparent',
-                  }}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all duration-150 border flex items-center gap-1 cursor-pointer select-none`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full`}
-                    style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
-                  />
-                  {dept.code}
-                </button>
-              );
-            })}
+        <div id="dept-tag-section" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <span className="block text-xs font-semibold text-slate-500">Primary Department</span>
+            <div className="flex flex-wrap gap-1.5 p-1 bg-slate-50 border border-slate-100 rounded-lg">
+              {departments.map((dept) => {
+                const isSelected = code === dept.code;
+                return (
+                  <button
+                    key={dept.code}
+                    type="button"
+                    onClick={() => {
+                      if (code2 === dept.code) setCode2(undefined);
+                      setCode(dept.code);
+                    }}
+                    style={{
+                      backgroundColor: isSelected ? dept.color : 'transparent',
+                      color: isSelected ? '#ffffff' : '#475569',
+                      borderColor: isSelected ? dept.color : 'transparent',
+                    }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all duration-150 border flex items-center gap-1 cursor-pointer select-none`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full`}
+                      style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
+                    />
+                    {dept.code}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <span className="block text-xs font-semibold text-slate-500">Secondary Department (Optional)</span>
+            <div className="flex flex-wrap gap-1.5 p-1 bg-slate-50 border border-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setCode2(undefined)}
+                style={{
+                  backgroundColor: !code2 ? '#64748b' : 'transparent',
+                  color: !code2 ? '#ffffff' : '#475569',
+                  borderColor: !code2 ? '#64748b' : 'transparent',
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all duration-150 border flex items-center gap-1 cursor-pointer select-none`}
+              >
+                None
+              </button>
+              {departments.map((dept) => {
+                if (dept.code === code) return null;
+                const isSelected = code2 === dept.code;
+                return (
+                  <button
+                    key={dept.code}
+                    type="button"
+                    onClick={() => setCode2(dept.code)}
+                    style={{
+                      backgroundColor: isSelected ? dept.color : 'transparent',
+                      color: isSelected ? '#ffffff' : '#475569',
+                      borderColor: isSelected ? dept.color : 'transparent',
+                    }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all duration-150 border flex items-center gap-1 cursor-pointer select-none`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full`}
+                      style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
+                    />
+                    {dept.code}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

@@ -28,6 +28,7 @@ export default function TaskEditModal({
   allTasks = [],
 }: TaskEditModalProps) {
   const [code, setCode] = useState('LOG');
+  const [code2, setCode2] = useState<string | undefined>(undefined);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [details, setDetails] = useState('');
@@ -46,6 +47,7 @@ export default function TaskEditModal({
   useEffect(() => {
     if (isOpen && task) {
       setCode(task.code);
+      setCode2(task.code2);
       setDate(task.date);
       setTime(task.time || '');
       setDetails(task.details);
@@ -109,6 +111,7 @@ export default function TaskEditModal({
     onSubmit({
       id: isEditMode ? task.id : undefined,
       code,
+      code2,
       date,
       time,
       details: details.trim(),
@@ -181,33 +184,81 @@ export default function TaskEditModal({
 
           <form onSubmit={handleSubmit} className="p-6 space-y-5 flex-grow overflow-y-auto max-h-[80vh]">
             {/* 1. Department tag list picker */}
-            <div className="space-y-2">
-              <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
-                Department Tag / Code
-              </label>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 p-1.5 bg-slate-50 border border-slate-200/60 rounded-xl">
-                {departments.map((dept) => {
-                  const isSelected = code === dept.code;
-                  return (
-                    <button
-                      key={dept.code}
-                      type="button"
-                      onClick={() => setCode(dept.code)}
-                      style={{
-                        backgroundColor: isSelected ? dept.color : 'transparent',
-                        color: isSelected ? '#ffffff' : '#334155',
-                        borderColor: isSelected ? dept.color : 'transparent',
-                      }}
-                      className="px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all duration-100 border text-center flex flex-col items-center justify-center gap-1 cursor-pointer select-none"
-                    >
-                      <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
-                      />
-                      <span className="text-[10px] tracking-wide">{dept.code}</span>
-                    </button>
-                  );
-                })}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  Primary Department Tag
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-1.5 bg-slate-50 border border-slate-200/60 rounded-xl">
+                  {departments.map((dept) => {
+                    const isSelected = code === dept.code;
+                    return (
+                      <button
+                        key={dept.code}
+                        type="button"
+                        onClick={() => {
+                          if (code2 === dept.code) setCode2(undefined);
+                          setCode(dept.code);
+                        }}
+                        style={{
+                          backgroundColor: isSelected ? dept.color : 'transparent',
+                          color: isSelected ? '#ffffff' : '#334155',
+                          borderColor: isSelected ? dept.color : 'transparent',
+                        }}
+                        className="px-2 py-1.5 rounded-lg text-xs font-bold uppercase transition-all duration-100 border text-center flex items-center gap-1.5 cursor-pointer select-none"
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
+                        />
+                        <span className="text-[10px] tracking-wide">{dept.code}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  Secondary Department Tag (Optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-1.5 bg-slate-50 border border-slate-200/60 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setCode2(undefined)}
+                    style={{
+                      backgroundColor: !code2 ? '#64748b' : 'transparent',
+                      color: !code2 ? '#ffffff' : '#334155',
+                      borderColor: !code2 ? '#64748b' : 'transparent',
+                    }}
+                    className="px-2 py-1.5 rounded-lg text-xs font-bold uppercase transition-all duration-100 border text-center flex items-center gap-1.5 cursor-pointer select-none"
+                  >
+                    None
+                  </button>
+                  {departments.map((dept) => {
+                    if (dept.code === code) return null;
+                    const isSelected = code2 === dept.code;
+                    return (
+                      <button
+                        key={dept.code}
+                        type="button"
+                        onClick={() => setCode2(dept.code)}
+                        style={{
+                          backgroundColor: isSelected ? dept.color : 'transparent',
+                          color: isSelected ? '#ffffff' : '#334155',
+                          borderColor: isSelected ? dept.color : 'transparent',
+                        }}
+                        className="px-2 py-1.5 rounded-lg text-xs font-bold uppercase transition-all duration-100 border text-center flex items-center gap-1.5 cursor-pointer select-none"
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: isSelected ? '#ffffff' : dept.color }}
+                        />
+                        <span className="text-[10px] tracking-wide">{dept.code}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
