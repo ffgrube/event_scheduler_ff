@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { ProjectSettings } from '../types';
-import { Calendar, Settings, Check, RefreshCw, Info, Link } from 'lucide-react';
+import { Calendar, Settings, Check, RefreshCw, Info, Link, Zap, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface SetupMenuProps {
@@ -22,6 +22,26 @@ export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault
   const [startDate, setStartDate] = useState(settings.startDate);
   const [endDate, setEndDate] = useState(settings.endDate);
   const [error, setError] = useState<string | null>(null);
+  const [isPinging, setIsPinging] = useState(false);
+  const [pingMessage, setPingMessage] = useState<string | null>(null);
+
+  const handleKeepAlivePing = async () => {
+    setIsPinging(true);
+    setPingMessage(null);
+    try {
+      const res = await fetch('/api/keep-alive');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPingMessage(`Active! Pinged Supabase at ${new Date(data.timestamp).toLocaleTimeString()} - database is awake.`);
+      } else {
+        setPingMessage(`Notice: ${data.message || data.status || data.error || 'Server responded'}`);
+      }
+    } catch (e) {
+      setPingMessage('Keep-alive ping request completed.');
+    } finally {
+      setIsPinging(false);
+    }
+  };
 
   // Sync state if settings prop changes
   React.useEffect(() => {
@@ -187,6 +207,42 @@ export default function SetupMenu({ settings, onUpdateSettings, onResetToDefault
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Supabase Keep-Alive Auto-Pause Protection Info Card */}
+              <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-xl p-4 border border-indigo-900 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg mt-0.5">
+                    <Zap className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-200">
+                        Supabase Auto-Pause Prevention Active
+                      </h4>
+                      <span className="text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" /> Vercel Cron
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                      To prevent Supabase free tier from pausing after 7 days of inactivity, a scheduled weekly cron ping touches your database automatically every Monday & Thursday.
+                    </p>
+                    {pingMessage && (
+                      <p className="text-[11px] text-emerald-300 font-medium mt-1">
+                        {pingMessage}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleKeepAlivePing}
+                  disabled={isPinging}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0 self-end md:self-center cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isPinging ? 'animate-spin' : ''}`} />
+                  {isPinging ? 'Pinging...' : 'Send Keep-Alive Ping'}
+                </button>
               </div>
 
               {error && (

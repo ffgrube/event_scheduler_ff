@@ -345,6 +345,51 @@ app.get("/api/db-status", (req, res) => {
   });
 });
 
+// Keep-Alive Ping function to prevent Supabase project auto-pausing due to inactivity
+async function runSupabaseKeepAlive() {
+  const sbClient = getSupabaseClient();
+  const timestamp = new Date().toISOString();
+  if (!sbClient) {
+    return { success: false, reason: "Supabase client not configured (SUPABASE_URL / SUPABASE_KEY missing)", timestamp };
+  }
+  try {
+    const { data, error } = await (sbClient as any)
+      .from("projects")
+      .select("id, name, updated_at")
+      .limit(1);
+
+    if (error) {
+      console.error("[Keep-Alive] Error querying Supabase:", error);
+      return { success: false, error: error.message, timestamp };
+    }
+
+    if (data && data.length > 0) {
+      // Touch timestamp on first record to generate active write/update query in database log
+      await (sbClient as any)
+        .from("projects")
+        .update({ updated_at: timestamp })
+        .eq("id", data[0].id);
+    }
+
+    console.log(`[Keep-Alive] Supabase pinged successfully at ${timestamp}`);
+    return {
+      success: true,
+      message: "Supabase keep-alive ping successful. Database is active.",
+      projectsFound: data ? data.length : 0,
+      timestamp
+    };
+  } catch (err: any) {
+    console.error("[Keep-Alive] Exception pinging Supabase:", err);
+    return { success: false, error: err?.message || String(err), timestamp };
+  }
+}
+
+// Keep-Alive route (triggered manually or by Vercel Cron / external uptime checkers)
+app.get(["/api/keep-alive", "/api/cron/keep-alive"], async (req, res) => {
+  const result = await runSupabaseKeepAlive();
+  res.status(result.success ? 200 : 500).json(result);
+});
+
 // Fetch list of projects with task/depts count (metadata style for active picker)
 app.get("/api/projects", async (req, res) => {
   const projects = await loadProjects(req);

@@ -25,19 +25,66 @@ interface BulkImportProps {
   defaultDate?: string;
 }
 
-const TEMPLATE_EXAMPLE = `LOG,2026-07-06,06:30,Main load-in bay reserved
-LX,2026-07-06,14:00,Motor hang and structural safety point lock
-AV,2026-07-06,19:15,Night line-array power loom runs
-STG,2026-07-07,09:00,Scenic deck framing assemble
-AV,2026-07-07,,ALL DAY: Audio console positioning & sound check
-MKT,2026-07-07,,ALL DAY: Venue exterior graphic wraps install
-LX,2026-07-08,10:30,Profiles circuit check and dimming patch`;
+const AI_PROMPT_SYSTEM_INSTRUCTIONS = `You are an expert event scheduling logistics assistant for event planning and master scheduling applications.
+
+Your task is to take chaotic planning documents, Excel files, PDF blueprints, vendor notes, or email text dumps and convert them into clean, error-free CSV bulk-upload lines for the event scheduler application.
+
+### 1. TARGET OUTPUT FORMAT
+Every output line MUST follow this exact 5-column comma-separated structure:
+CODE,YYYY-MM-DD,HH:MM,Task Details,DURATION_DAYS
+
+- CODE: Department shortcode (Uppercase, e.g., HUNZ, MESLI, NUS, ARC, TOI, WEBER).
+- YYYY-MM-DD: Task start date. Normalize slashes or German date notations (e.g., 30.09. -> 2026-09-30).
+- HH:MM: Military start time (e.g., 08:00, 13:00). Leave EMPTY if all daily timeslots are used or if it is an All-Day task.
+- Task Details: Actionable description. If the description text contains commas, ALWAYS enclose it in double quotes (e.g., "VIP Zelt [8:00 - 12:00, 13:00 - 18:00]").
+- DURATION_DAYS: Total number of active consecutive calendar days (pure integer, e.g., 1, 3, 5).
+
+### 2. DEFAULT DEPARTMENT ROUTING RULES
+Assign the correct CODE based on vendor/keyword references:
+- HUNZ -> Hunziker (tents, heating, VIP structures)
+- MESLI -> Messerli (booths, walls, lounge furniture, backstage setups)
+- TOI -> Toi Toi (sanitary containers, toilets, plumbing connections)
+- WEBER -> Weberfloors (carpeting, floor coverings)
+- MCH -> Messe MCH (hall handovers, hall power/water connections, venue cleaning)
+- WASSR -> Wassermann Catering (catering areas, bars, dining setups)
+- NUS -> Nüssli (grandstands, tribunes, heavy structural staging)
+- PA -> Public Address sound systems
+- TAT -> Tattoo Management / official rehearsals
+- AUDIO -> Main audio systems, microphones, RF, mixers, soundchecks
+- VID -> Video screens, LED walls, cameras
+- LOG -> Heavy logistics transport, trucks, crane operations
+- LX -> Lighting rigs, spots, dimmers, cabling runs
+- ARC -> General site architecture, scaffolding checks, or AudioRent Clair / technical rigging if undefined
+- MISC -> General sponsors, generic catering/drinks, or fallback if no other code applies
+
+### 3. TIMING & DURATION PARSING RULES
+1. If a task spans multiple consecutive days, do NOT generate separate daily rows unless explicitly requested. Instead, set the start date to the first active day, calculate the total active days, and place that integer in the DURATION_DAYS column.
+2. If a schedule defines daily time slots (e.g., Morning, Afternoon, Evening) and ALL slots are marked, leave the HH:MM column empty (All-Day). If only 1 or 2 slots are marked, put the earliest start time in HH:MM and append the slot range inside square brackets in the Task Details string.
+
+### 4. OUTPUT INSTRUCTIONS
+- Output ONLY the raw CSV text block inside a code block.
+- Do not add conversational filler before or after the code block unless clarification is required.`;
+
+const TEMPLATE_EXAMPLE = `LOG,2026-07-06,06:30,Main load-in bay reserved,1
+LX,2026-07-06,14:00,Motor hang and structural safety point lock,1
+AV,2026-07-06,19:15,Night line-array power loom runs,1
+STG,2026-07-07,09:00,Scenic deck framing assemble,2
+HUNZ,2026-07-07,,VIP Zelt Montage [8:00 - 12:00],3
+MESLI,2026-07-08,,Backstage furniture setup,1`;
 
 export default function BulkImport({ departments, onBulkImport, showToast, defaultDate = '2026-07-06' }: BulkImportProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [parsedPreviewCount, setParsedPreviewCount] = useState(0);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [promptCopySuccess, setPromptCopySuccess] = useState(false);
+
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(AI_PROMPT_SYSTEM_INSTRUCTIONS);
+    setPromptCopySuccess(true);
+    showToast('AI System Prompt copied! Paste into Gemini or ChatGPT to convert vendor docs.', 'success');
+    setTimeout(() => setPromptCopySuccess(false), 3000);
+  };
 
   // Parse strings and count valid tasks in real-time
   useEffect(() => {
@@ -207,17 +254,29 @@ export default function BulkImport({ departments, onBulkImport, showToast, defau
         <div className="border-t border-slate-100 p-5 bg-slate-50/30 space-y-4">
           {/* Information & Template Box */}
           <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-3.5 space-y-2.5">
-            <div className="flex items-start gap-2">
-              <BookOpen className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
-              <div className="space-y-1">
-                <span className="block text-[11px] font-bold text-indigo-900 uppercase tracking-tight">Standard CSV Format Structure</span>
-                <span className="block text-[10.5px] leading-relaxed text-indigo-750 font-medium">
-                  Use this generator template format with Gemini or sheets. Commas or tabs split items.
-                </span>
-                <span className="block text-[10px] font-mono text-indigo-600 font-bold mt-1">
-                  CODE, YYYY-MM-DD, HH:MM, Task Details
-                </span>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <BookOpen className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <span className="block text-[11px] font-bold text-indigo-900 uppercase tracking-tight">Standard CSV Format Structure</span>
+                  <span className="block text-[10.5px] leading-relaxed text-indigo-750 font-medium">
+                    Use this generator template format with Gemini or sheets. Commas or tabs split items.
+                  </span>
+                  <span className="block text-[10px] font-mono text-indigo-600 font-bold mt-1">
+                    CODE, YYYY-MM-DD, HH:MM, Task Details, DURATION_DAYS
+                  </span>
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={handleCopyPrompt}
+                className="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer select-none"
+                title="Copy the complete prompt to instruct Gemini/ChatGPT to format your emails or documents"
+              >
+                {promptCopySuccess ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                {promptCopySuccess ? 'Prompt Copied!' : 'Copy AI Prompt'}
+              </button>
             </div>
 
             {/* Template Sample Area */}
