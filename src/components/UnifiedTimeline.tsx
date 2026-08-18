@@ -10,7 +10,8 @@ import {
   generateDateRange, 
   getTimeSlot, 
   DEFAULT_DEPARTMENTS,
-  hexToRgb
+  hexToRgb,
+  calculateTaskTimeSpan
 } from '../utils';
 import { 
   Trash2, 
@@ -34,7 +35,9 @@ import {
   Eye,
   Settings,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Star,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -1070,8 +1073,7 @@ export default function UnifiedTimeline({
                   >
                     <div style={{ color: '#a5b4fc' }} className="text-[10px] font-bold">DAY {dayIdx + 1}</div>
                     <div className="text-[11px] font-extrabold text-white mt-0.5">{formatDateShort(dayDate)}</div>
-                    
-                    {/* CUSTOM DAY NAME & NOTE FIELDS */}
+                           {/* CUSTOM DAY NAME & NOTE FIELDS */}
                     {showReadOnlyLayout ? (
                       <div className="mt-2 space-y-1 normal-case text-left font-sans select-all font-normal">
                         {dayName && (
@@ -1141,6 +1143,15 @@ export default function UnifiedTimeline({
                         </div>
                       </div>
                     )}
+
+                    {/* Faint segment time marks on header (00:00, 06:00, 12:00, 18:00, 24:00) */}
+                    <div className="mt-2 pt-1 border-t border-slate-800 flex justify-between text-[7.5px] text-slate-400 font-mono select-none px-1 opacity-75">
+                      <span>00</span>
+                      <span>06</span>
+                      <span>12</span>
+                      <span>18</span>
+                      <span>24</span>
+                    </div>
                   </th>
                 );
               })}
@@ -1431,7 +1442,13 @@ export default function UnifiedTimeline({
                           const duration = task.durationDays || 1;
                           const colSpan = Math.min(duration, dateRange.length - dayIdx);
                           skipCount = colSpan - 1;
-                                    cells.push(
+
+                          // Compute Segment-Based Time Span (22 segments mapping)
+                          const timeSpan = calculateTaskTimeSpan(task);
+                          const isShort = timeSpan.isShortMilestone;
+                          const isMultiDay = colSpan > 1;
+
+                          cells.push(
                             <td 
                               key={`cell-${row.originalId}-${dayDate}`}
                               colSpan={colSpan}
@@ -1440,29 +1457,91 @@ export default function UnifiedTimeline({
                               }}
                               style={{
                                 borderRight: '1px solid #e2e8f0',
-                                backgroundColor: '#f0f4ff', // lightly highlighted active track line
-                                padding: '4px',
+                                backgroundColor: isHovered ? '#f1f5f9' : '#f8fafc',
+                                padding: '4px 6px',
                                 minWidth: `${colWidth * colSpan}px`,
                                 maxWidth: `${colWidth * colSpan}px`,
                                 width: `${colWidth * colSpan}px`
                               }}
                               className="text-center align-middle transition-all relative cursor-pointer"
                             >
-                              <div
-                                style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } : { backgroundColor: getDeptColor(task.code) }}
-                                className="w-full min-h-[30px] rounded-lg text-white font-extrabold flex flex-col items-center justify-center shadow-xs px-2.5 py-1 transition-transform hover:scale-[1.01] active:scale-95 cursor-pointer"
-                                title={`${task.code2 ? `${task.code} / ${task.code2}` : task.code}: ${task.details} (${task.time || 'All Day'}) - Click to view detailed notes`}
-                              >
-                                <span className="text-[10px] tracking-widest uppercase font-black">{task.code2 ? `${task.code}/${task.code2}` : task.code}</span>
-                                <span className="text-[9px] opacity-90 mt-0.5 font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
-                                  {task.time || 'All Day'}
-                                </span>
-                                {(task.startTime || task.endTime) && (
-                                  <div className="flex gap-1.5 mt-0.5 opacity-95 text-[8px] font-black items-center bg-black/10 px-1 py-0.5 rounded-sm">
-                                    {task.startTime && <span title={`Start: ${task.startTime}`}>▶ {task.startTime}</span>}
-                                    {task.endTime && <span title={`End: ${task.endTime}`}>⏹ {task.endTime}</span>}
+                              {/* Background Segment Grid Guides */}
+                              <div className="absolute inset-0 pointer-events-none opacity-25 flex justify-between px-1">
+                                <div className="w-[1px] h-full bg-slate-300"></div>
+                                <div className="w-[1px] h-full bg-slate-200"></div>
+                                <div className="w-[1px] h-full bg-slate-300"></div>
+                                <div className="w-[1px] h-full bg-slate-200"></div>
+                                <div className="w-[1px] h-full bg-slate-300"></div>
+                              </div>
+
+                              {/* Split Cell Structure: Upper Half (Visual Duration / Star) + Lower Half (Name & Time Details) */}
+                              <div className="relative w-full flex flex-col justify-between min-h-[46px] py-0.5 gap-1 select-none">
+                                
+                                {/* UPPER HALF: Visual Duration Track only in color (or Milestone Star) */}
+                                <div className="relative w-full h-[14px] flex items-center bg-slate-200/50 rounded-full overflow-visible border border-slate-300/40">
+                                  {isShort ? (
+                                    /* Milestone Star on upper timeline track */
+                                    <div 
+                                      style={{
+                                        left: `${Math.min(94, Math.max(6, timeSpan.leftPercent))}%`,
+                                        transform: 'translate(-50%, -50%)'
+                                      }}
+                                      className="absolute top-1/2 flex items-center justify-center z-20 hover:scale-125 transition-transform"
+                                      title={`Milestone Star: ${timeSpan.effectiveStartTime} - ${task.details}`}
+                                    >
+                                      <div 
+                                        style={task.code2 ? { background: `linear-gradient(135deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } : { backgroundColor: getDeptColor(task.code) }}
+                                        className="p-1 rounded-full flex items-center justify-center ring-2 ring-amber-400 shadow-md animate-bounce"
+                                      >
+                                        <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-500 drop-shadow-sm" />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Proportional colored duration bar across 22 segments */
+                                    <div
+                                      style={{
+                                        position: 'absolute',
+                                        left: isMultiDay ? '0%' : `${timeSpan.leftPercent}%`,
+                                        width: isMultiDay ? '100%' : `${timeSpan.widthPercent}%`,
+                                        ...(task.code2 
+                                          ? { background: `linear-gradient(90deg, ${getDeptColor(task.code)} 50%, ${getDeptColor(task.code2)} 50%)` } 
+                                          : { backgroundColor: getDeptColor(task.code) }
+                                        )
+                                      }}
+                                      className="h-full rounded-full shadow-xs transition-all border border-white/40"
+                                      title={`${task.code}: ${timeSpan.effectiveStartTime} - ${timeSpan.effectiveEndTime} (${Math.round(timeSpan.durationMinutes / 60 * 10) / 10}h)`}
+                                    />
+                                  )}
+                                </div>
+
+                                {/* LOWER HALF: Name, Department Code & Time */}
+                                <div 
+                                  style={{
+                                    borderLeftColor: getDeptColor(task.code),
+                                  }}
+                                  className="w-full bg-white/90 rounded-md border-l-3 border border-slate-200/80 px-2 py-1 flex items-center justify-between gap-1.5 shadow-2xs text-left overflow-hidden transition-all hover:bg-slate-50"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <span 
+                                      style={{ color: getDeptColor(task.code) }}
+                                      className="text-[10px] font-black tracking-wider uppercase flex-shrink-0"
+                                    >
+                                      {task.code2 ? `${task.code}/${task.code2}` : task.code}
+                                    </span>
+                                    <span className="text-[9.5px] font-semibold text-slate-800 truncate">
+                                      {task.details}
+                                    </span>
                                   </div>
-                                )}
+
+                                  {/* Formatted Military Time Badge */}
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {isShort && <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" />}
+                                    <span className="text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/70 whitespace-nowrap">
+                                      {timeSpan.isUntimedDefault ? '09:00–19:00' : `${timeSpan.effectiveStartTime}–${timeSpan.effectiveEndTime}`}
+                                    </span>
+                                  </div>
+                                </div>
+
                               </div>
                             </td>
                           );

@@ -103,13 +103,13 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
       code,
       code2,
       date,
-      time,
+      time: time || startTime || '',
       details: details.trim(),
       status,
       durationDays,
       dependencyTaskId: dependencyTaskId || undefined,
       notes: notes.trim() || undefined,
-      startTime: startTime || undefined,
+      startTime: startTime || time || undefined,
       endTime: endTime || undefined,
     });
 
@@ -293,8 +293,11 @@ export default function TaskForm({ departments, onSubmit, editingTask, onCancelE
               <span className="absolute left-3 top-2 text-[11px] text-indigo-500 font-bold select-none">▶</span>
               <input
                 type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                value={startTime || time}
+                onChange={(e) => {
+                  setTime(e.target.value);
+                  setStartTime(e.target.value);
+                }}
                 className="w-full text-xs pl-8 pr-2 py-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
               />
             </div>

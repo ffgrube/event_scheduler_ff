@@ -267,6 +267,37 @@ app.get("/api/db-status", (req, res) => {
     error: lastSupabaseError
   });
 });
+async function runSupabaseKeepAlive() {
+  const sbClient = getSupabaseClient();
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  if (!sbClient) {
+    return { success: false, reason: "Supabase client not configured (SUPABASE_URL / SUPABASE_KEY missing)", timestamp };
+  }
+  try {
+    const { data, error } = await sbClient.from("projects").select("id, name, updated_at").limit(1);
+    if (error) {
+      console.error("[Keep-Alive] Error querying Supabase:", error);
+      return { success: false, error: error.message, timestamp };
+    }
+    if (data && data.length > 0) {
+      await sbClient.from("projects").update({ updated_at: timestamp }).eq("id", data[0].id);
+    }
+    console.log(`[Keep-Alive] Supabase pinged successfully at ${timestamp}`);
+    return {
+      success: true,
+      message: "Supabase keep-alive ping successful. Database is active.",
+      projectsFound: data ? data.length : 0,
+      timestamp
+    };
+  } catch (err) {
+    console.error("[Keep-Alive] Exception pinging Supabase:", err);
+    return { success: false, error: err?.message || String(err), timestamp };
+  }
+}
+app.get(["/api/keep-alive", "/api/cron/keep-alive"], async (req, res) => {
+  const result = await runSupabaseKeepAlive();
+  res.status(result.success ? 200 : 500).json(result);
+});
 app.get("/api/projects", async (req, res) => {
   const projects = await loadProjects(req);
   const summaries = projects.map((p) => ({

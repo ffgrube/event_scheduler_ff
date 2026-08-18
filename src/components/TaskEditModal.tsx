@@ -113,14 +113,14 @@ export default function TaskEditModal({
       code,
       code2,
       date,
-      time,
+      time: time || startTime || '',
       details: details.trim(),
       status,
       durationDays,
       parentTaskId: task.parentTaskId,
       dependencyTaskId: dependencyTaskId || undefined,
       notes: notes.trim() || undefined,
-      startTime: startTime || undefined,
+      startTime: startTime || time || undefined,
       endTime: endTime || undefined,
     });
 
@@ -338,12 +338,15 @@ export default function TaskEditModal({
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 text-[10px] text-indigo-500 font-extrabold select-none">▶</span>
-                  <input
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full text-xs pl-8 pr-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
-                  />
+                    <input
+                      type="time"
+                      value={startTime || time}
+                      onChange={(e) => {
+                        setTime(e.target.value);
+                        setStartTime(e.target.value);
+                      }}
+                      className="w-full text-xs pl-8 pr-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                    />
                 </div>
               </div>
 
